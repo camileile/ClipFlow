@@ -19,7 +19,6 @@ export function ArrowRightIcon(props: IconProps) {
     </svg>
   );
 }
-
 export function CheckIcon(props: IconProps) {
   return (
     <svg {...iconDefaults} {...props}>
@@ -87,4 +86,3 @@ export function VideoIcon(props: IconProps) {
     </svg>
   );
 }
-

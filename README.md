@@ -233,4 +233,3 @@ Ainda não implementado:
 3. Implementar análise real do YouTube com testes e limites de segurança.
 4. Adicionar o pipeline de conversão e acompanhamento de progresso.
 5. Expandir plataformas somente após estabilizar o primeiro fluxo.
-

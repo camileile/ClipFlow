@@ -19,4 +19,3 @@ class AnalyzeResponse(BaseModel):
     author: str
     duration: int = Field(ge=0)
     thumbnail: HttpUrl | None
-

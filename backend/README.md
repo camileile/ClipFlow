@@ -25,4 +25,3 @@ em `http://localhost:8000/docs`.
 ```bash
 python -m pytest
 ```
-

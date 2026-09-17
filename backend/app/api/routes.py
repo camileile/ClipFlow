@@ -36,4 +36,3 @@ def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
         duration=0,
         thumbnail=None,
     )
-

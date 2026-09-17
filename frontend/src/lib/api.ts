@@ -88,4 +88,3 @@ export async function analyzeMedia(url: string): Promise<AnalyzeResponse> {
 
   return payload;
 }
-

@@ -12,4 +12,3 @@ export interface AnalyzeResponse {
   duration: number;
   thumbnail: string | null;
 }
-
