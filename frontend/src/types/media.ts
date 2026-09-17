@@ -1,14 +1,32 @@
-export type MediaPlatform = "youtube" | "unknown";
+export type MediaPlatform = "youtube";
 
 export type MediaFormat = "mp4" | "mp3";
 
-export type MediaQuality = "best" | "1080p" | "720p" | "480p";
+export type MediaQuality = "best" | `${number}p`;
+
+export interface AvailableMediaFormat {
+  format_id: string;
+  type: "video" | "audio";
+  extension: string | null;
+  quality: number | null;
+  fps: number | null;
+  bitrate: number | null;
+  filesize: number | null;
+}
+
+export interface MediaInfo {
+  id: string;
+  title: string;
+  author: string | null;
+  duration: number | null;
+  thumbnail: string | null;
+  original_url: string;
+  qualities: number[];
+  formats: AvailableMediaFormat[];
+}
 
 export interface AnalyzeResponse {
-  success: boolean;
+  success: true;
   platform: MediaPlatform;
-  title: string;
-  author: string;
-  duration: number;
-  thumbnail: string | null;
+  media: MediaInfo;
 }

@@ -46,13 +46,17 @@ export default function Home() {
               <span className="block text-accent">Simples assim.</span>
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-pretty text-base leading-7 text-muted sm:mt-6 sm:text-lg sm:leading-8">
-              Cole o link de uma mídia, escolha o formato ideal e prepare-se
-              para salvar. Nesta primeira versão, você pode experimentar todo o
-              fluxo com uma prévia demonstrativa.
+              Cole o link de um vídeo público do YouTube e confira título,
+              canal, duração e qualidades disponíveis antes de escolher como
+              deseja salvá-lo no futuro.
             </p>
           </div>
 
           <DownloaderPanel />
+          <p className="mx-auto mt-4 max-w-3xl text-center text-xs leading-5 text-muted">
+            Use o ClipFlow apenas para conteúdo que você tenha permissão ou
+            direito de baixar.
+          </p>
         </section>
 
         <section className="border-y border-line bg-section px-4 py-18 sm:px-6 sm:py-22">
@@ -71,9 +75,9 @@ export default function Home() {
             </div>
             <p className="text-sm leading-7 text-muted sm:text-base">
               O ClipFlow está sendo construído para transformar links de mídia
-              em um fluxo direto e fácil de entender. Por enquanto, esta base
-              valida a experiência e a comunicação com a API — sem realizar
-              downloads ou acessar conteúdo de plataformas externas.
+              em um fluxo direto e fácil de entender. Nesta etapa, a API
+              consulta metadados públicos reais do YouTube, mas ainda não baixa
+              nem converte qualquer arquivo.
             </p>
           </div>
         </section>
@@ -81,7 +85,7 @@ export default function Home() {
 
       <footer className="relative z-10 border-t border-line px-4 py-7 sm:px-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 text-center text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:text-left">
-          <p>© 2026 ClipFlow. Fundação demonstrativa.</p>
+          <p>© 2026 ClipFlow. Análise de metadados.</p>
           <p>Feito para evoluir, sem atalhos desnecessários.</p>
         </div>
       </footer>
