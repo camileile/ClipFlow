@@ -34,3 +34,13 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local media downloads and partial files
+/downloads/
+/temp/
+backend/downloads/
+backend/temp/
+backend/**/*.mp4
+backend/**/*.webm
+backend/**/*.m4a
+*.part
