@@ -4,10 +4,16 @@ import { useState, type FormEvent } from "react";
 
 import { ArrowRightIcon, LinkIcon } from "@/components/icons";
 import { MediaPreview } from "@/components/media-preview";
-import { analyzeMedia, ApiRequestError } from "@/lib/api";
+import { analyzeMedia, ApiRequestError, downloadMedia } from "@/lib/api";
 import type { MediaFormat, MediaInfo, MediaQuality } from "@/types/media";
 
-type RequestStatus = "idle" | "loading" | "success" | "error";
+type RequestStatus =
+  | "idle"
+  | "analyzing"
+  | "ready"
+  | "downloading"
+  | "success"
+  | "error";
 
 function isValidWebUrl(value: string): boolean {
   try {
@@ -46,14 +52,14 @@ export function DownloaderPanel() {
 
     setPreview(null);
     setQuality("best");
-    setStatus("loading");
+    setStatus("analyzing");
     setMessage("Consultando os metadados públicos do vídeo...");
 
     try {
       const result = await analyzeMedia(normalizedUrl);
       setPreview(result.media);
-      setStatus("success");
-      setMessage("Vídeo analisado com sucesso. Nenhum arquivo foi baixado.");
+      setStatus("ready");
+      setMessage("Vídeo analisado. Escolha a qualidade para baixar o MP4.");
     } catch (error) {
       setStatus("error");
       setMessage(
@@ -64,11 +70,53 @@ export function DownloaderPanel() {
     }
   }
 
-  const isLoading = status === "loading";
+  async function handleDownload() {
+    if (!preview || format !== "mp4" || status === "downloading") {
+      return;
+    }
+
+    const selectedQuality =
+      quality === "best"
+        ? preview.qualities[0]
+        : Number.parseInt(quality.replace(/p$/, ""), 10);
+
+    if (!selectedQuality || !preview.qualities.includes(selectedQuality)) {
+      setStatus("error");
+      setMessage("Escolha uma qualidade disponível antes de baixar.");
+      return;
+    }
+
+    setStatus("downloading");
+    setMessage("Preparando o MP4. Esta etapa pode levar alguns minutos...");
+
+    try {
+      const result = await downloadMedia(
+        {
+          url: preview.original_url,
+          format: "mp4",
+          quality: selectedQuality,
+        },
+        preview.title,
+      );
+      setStatus("success");
+      setMessage(`Download iniciado: ${result.filename}`);
+    } catch (error) {
+      setStatus("error");
+      setMessage(
+        error instanceof ApiRequestError
+          ? error.message
+          : "Não foi possível concluir o download. Tente novamente.",
+      );
+    }
+  }
+
+  const isAnalyzing = status === "analyzing";
+  const isDownloading = status === "downloading";
+  const isBusy = isAnalyzing || isDownloading;
   const messageColor =
     status === "error"
       ? "text-danger"
-      : status === "success"
+      : status === "success" || status === "ready"
         ? "text-success-strong"
         : "text-muted";
 
@@ -91,6 +139,7 @@ export function DownloaderPanel() {
               inputMode="url"
               autoComplete="url"
               value={url}
+              disabled={isDownloading}
               onChange={(event) => {
                 setUrl(event.target.value);
                 if (preview !== null) {
@@ -104,20 +153,22 @@ export function DownloaderPanel() {
               }}
               placeholder="Cole um link do YouTube..."
               aria-describedby="url-feedback"
-              aria-invalid={status === "error"}
+              aria-invalid={status === "error" && preview === null}
               className="h-12 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-placeholder"
             />
           </div>
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isBusy}
             className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-accent px-6 text-sm font-bold text-white shadow-accent transition hover:-translate-y-0.5 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:translate-y-0 disabled:opacity-70"
           >
-            {isLoading ? (
+            {isAnalyzing ? (
               <>
                 <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
                 Analisando
               </>
+            ) : isDownloading ? (
+              "Aguarde"
             ) : (
               <>
                 Analisar
@@ -137,8 +188,20 @@ export function DownloaderPanel() {
         data={preview}
         format={format}
         quality={quality}
-        isLoading={isLoading}
-        onFormatChange={setFormat}
+        isLoading={isAnalyzing}
+        isDownloading={isDownloading}
+        onDownload={handleDownload}
+        onFormatChange={(nextFormat) => {
+          setFormat(nextFormat);
+          if (preview) {
+            setStatus("ready");
+            setMessage(
+              nextFormat === "mp3"
+                ? "MP3 estará disponível em uma próxima etapa."
+                : "Escolha a qualidade para baixar o MP4.",
+            );
+          }
+        }}
         onQualityChange={setQuality}
       />
     </div>

@@ -14,6 +14,8 @@ interface MediaPreviewProps {
   format: MediaFormat;
   quality: MediaQuality;
   isLoading: boolean;
+  isDownloading: boolean;
+  onDownload: () => void;
   onFormatChange: (format: MediaFormat) => void;
   onQualityChange: (quality: MediaQuality) => void;
 }
@@ -32,6 +34,8 @@ export function MediaPreview({
   format,
   quality,
   isLoading,
+  isDownloading,
+  onDownload,
   onFormatChange,
   onQualityChange,
 }: MediaPreviewProps) {
@@ -43,14 +47,20 @@ export function MediaPreview({
     : (data?.author ?? (data ? "Canal não informado" : "Canal"));
   const duration = data ? formatDuration(data.duration) : "00:00";
   const platform = data || isLoading ? "YouTube" : "Prévia";
+  const isBusy = isLoading || isDownloading;
+  const canDownload =
+    data !== null &&
+    data.qualities.length > 0 &&
+    format === "mp4" &&
+    !isBusy;
 
   return (
     <section
       className="relative overflow-hidden rounded-[1.4rem] border border-line bg-surface-elevated p-4 sm:p-5"
       aria-label="Prévia da mídia"
-      aria-busy={isLoading}
+      aria-busy={isBusy}
     >
-      {isLoading && (
+      {isBusy && (
         <div className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-accent-soft">
           <div className="loading-bar h-full w-1/3 bg-accent" />
         </div>
@@ -103,8 +113,10 @@ export function MediaPreview({
                   <CheckIcon className="size-3" />
                 </span>
               )}
-              {data
-                ? "Análise concluída"
+              {isDownloading
+                ? "Preparando seu MP4"
+                : data
+                  ? "Análise concluída"
                 : isLoading
                   ? "Analisando vídeo"
                   : "Aguardando seu link"}
@@ -134,8 +146,9 @@ export function MediaPreview({
                     name="format"
                     value={option.value}
                     checked={format === option.value}
+                    disabled={isBusy}
                     onChange={() => onFormatChange(option.value)}
-                    className="sr-only"
+                    className="sr-only disabled:cursor-not-allowed"
                   />
                   <span className="flex items-center justify-between gap-2">
                     <span className="font-semibold">{option.label}</span>
@@ -152,10 +165,11 @@ export function MediaPreview({
             <span className="mb-2 block">Qualidade</span>
             <select
               value={quality}
+              disabled={!data || isBusy || format !== "mp4"}
               onChange={(event) =>
                 onQualityChange(event.target.value as MediaQuality)
               }
-              className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground outline-none transition hover:border-accent/35 focus:border-accent focus:ring-3 focus:ring-accent-soft"
+              className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground outline-none transition hover:border-accent/35 focus:border-accent focus:ring-3 focus:ring-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="best">Melhor qualidade</option>
               {data?.qualities.map((availableQuality) => (
@@ -171,12 +185,22 @@ export function MediaPreview({
 
           <button
             type="button"
-            disabled
-            className="mt-auto flex h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-line bg-disabled text-sm font-semibold text-disabled-text opacity-90"
-            title="Downloads serão implementados em uma próxima etapa"
+            disabled={!canDownload}
+            onClick={onDownload}
+            className="mt-auto flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-accent text-sm font-semibold text-white shadow-accent transition hover:-translate-y-0.5 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:translate-y-0 disabled:border disabled:border-line disabled:bg-disabled disabled:text-disabled-text disabled:shadow-none"
+            title={format === "mp3" ? "MP3 estará disponível em breve" : undefined}
           >
-            <DownloadIcon className="size-4" />
-            Download em breve
+            {isDownloading ? (
+              <>
+                <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                Preparando download...
+              </>
+            ) : (
+              <>
+                <DownloadIcon className="size-4" />
+                {format === "mp3" ? "MP3 em breve" : "Baixar MP4"}
+              </>
+            )}
           </button>
         </div>
       </div>

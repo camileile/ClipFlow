@@ -1,10 +1,17 @@
 import type {
   AnalyzeResponse,
   AvailableMediaFormat,
+  DownloadRequest,
+  DownloadResult,
   MediaInfo,
 } from "@/types/media";
 
-export type ApiErrorKind = "invalid-url" | "unavailable" | "unexpected";
+export type ApiErrorKind =
+  | "invalid-request"
+  | "invalid-url"
+  | "limit"
+  | "unavailable"
+  | "unexpected";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -98,6 +105,80 @@ async function readErrorDetail(response: Response): Promise<string | null> {
   }
 }
 
+function errorFromResponse(response: Response, detail: string | null) {
+  if (response.status === 413) {
+    return new ApiRequestError(
+      "limit",
+      detail ?? "Este vídeo excede o limite atual de download do ClipFlow.",
+    );
+  }
+
+  if (response.status === 400 || response.status === 422) {
+    return new ApiRequestError(
+      "invalid-request",
+      detail ?? "Confira o link e as opções selecionadas.",
+    );
+  }
+
+  if ([403, 404, 502, 503].includes(response.status)) {
+    return new ApiRequestError(
+      "unavailable",
+      detail ?? "O vídeo não pôde ser processado neste momento.",
+    );
+  }
+
+  return new ApiRequestError(
+    "unexpected",
+    detail ?? "Algo não saiu como esperado. Tente novamente em instantes.",
+  );
+}
+
+function safeFilename(value: string, fallback: string): string {
+  const leafName = value.split(/[\\/]/).at(-1) ?? "";
+  const cleaned = leafName
+    .replace(/[\u0000-\u001f\u007f<>:"|?*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+
+  return cleaned || fallback;
+}
+
+function filenameFromDisposition(
+  contentDisposition: string | null,
+  fallback: string,
+): string {
+  if (!contentDisposition) {
+    return fallback;
+  }
+
+  const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return safeFilename(decodeURIComponent(encodedMatch[1].trim()), fallback);
+    } catch {
+      return fallback;
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1]
+    ? safeFilename(plainMatch[1].trim(), fallback)
+    : fallback;
+}
+
+function startBrowserDownload(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
 export async function analyzeMedia(url: string): Promise<AnalyzeResponse> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
@@ -161,4 +242,53 @@ export async function analyzeMedia(url: string): Promise<AnalyzeResponse> {
   }
 
   return payload;
+}
+
+export async function downloadMedia(
+  request: DownloadRequest,
+  fallbackTitle: string,
+): Promise<DownloadResult> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 15 * 60_000);
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/api/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+  } catch {
+    throw new ApiRequestError(
+      "unavailable",
+      "Não foi possível concluir o download. Verifique se o backend está em execução.",
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    throw errorFromResponse(response, await readErrorDetail(response));
+  }
+
+  const blob = await response.blob();
+  if (blob.size === 0) {
+    throw new ApiRequestError(
+      "unexpected",
+      "O backend retornou um arquivo vazio. Tente novamente.",
+    );
+  }
+
+  const fallbackFilename = safeFilename(
+    `${fallbackTitle || "clipflow-video"}.mp4`,
+    "clipflow-video.mp4",
+  );
+  const filename = filenameFromDisposition(
+    response.headers.get("Content-Disposition"),
+    fallbackFilename,
+  );
+  startBrowserDownload(blob, filename);
+
+  return { filename };
 }
