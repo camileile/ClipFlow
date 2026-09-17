@@ -278,7 +278,7 @@ def normalize_video_info(info: Mapping[str, Any], requested_url: str) -> MediaIn
     )
 
 
-def _map_download_error(error: DownloadError) -> YouTubeAnalysisError:
+def map_download_error(error: DownloadError) -> YouTubeAnalysisError:
     message = str(error).lower()
 
     if "private video" in message or "granted access" in message:
@@ -293,7 +293,7 @@ def _map_download_error(error: DownloadError) -> YouTubeAnalysisError:
     return YouTubeServiceError()
 
 
-def analyze_youtube(url: HttpUrl | str) -> MediaInfo:
+def extract_youtube_info(url: HttpUrl | str) -> Mapping[str, Any]:
     requested_url = str(url)
     validate_youtube_url(requested_url)
     logger.info("Starting YouTube metadata analysis")
@@ -302,7 +302,7 @@ def analyze_youtube(url: HttpUrl | str) -> MediaInfo:
         with YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(requested_url, download=False)
     except DownloadError as error:
-        mapped_error = _map_download_error(error)
+        mapped_error = map_download_error(error)
         logger.warning(
             "YouTube metadata analysis failed: %s",
             mapped_error.__class__.__name__,
@@ -315,6 +315,13 @@ def analyze_youtube(url: HttpUrl | str) -> MediaInfo:
     if not isinstance(info, Mapping):
         logger.error("YouTube extractor returned an invalid payload")
         raise YouTubeServiceError
+
+    return info
+
+
+def analyze_youtube(url: HttpUrl | str) -> MediaInfo:
+    requested_url = str(url)
+    info = extract_youtube_info(requested_url)
 
     media = normalize_video_info(info, requested_url)
     logger.info("YouTube metadata analysis completed", extra={"video_id": media.id})

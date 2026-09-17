@@ -7,6 +7,12 @@ class AnalyzeRequest(BaseModel):
     url: HttpUrl = Field(description="Public YouTube URL to analyze")
 
 
+class DownloadRequest(BaseModel):
+    url: HttpUrl = Field(description="Public YouTube URL to download")
+    format: Literal["mp4"] = Field(description="Output format supported in this phase")
+    quality: int = Field(ge=1, le=4320, description="Exact video height in pixels")
+
+
 class MediaFormat(BaseModel):
     format_id: str
     type: Literal["video", "audio"]
