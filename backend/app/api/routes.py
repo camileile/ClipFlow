@@ -1,3 +1,5 @@
+from typing import Literal, NoReturn
+
 from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
@@ -25,7 +27,14 @@ from app.services.youtube import (
 router = APIRouter()
 
 
-def _raise_youtube_http_error(error: Exception, action: str) -> None:
+def _raise_youtube_http_error(
+    error: Exception,
+    operation: Literal["analysis", "download"],
+) -> NoReturn:
+    passive_action = "analisado" if operation == "analysis" else "baixado"
+    operation_name = "a análise" if operation == "analysis" else "o download"
+    action = "analisar" if operation == "analysis" else "baixar"
+
     if isinstance(error, InvalidYouTubeUrlError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -39,7 +48,7 @@ def _raise_youtube_http_error(error: Exception, action: str) -> None:
     if isinstance(error, PrivateVideoError):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Este vídeo é privado e não pode ser {action}.",
+            detail=f"Este vídeo é privado e não pode ser {passive_action}.",
         ) from error
     if isinstance(error, RemovedVideoError):
         raise HTTPException(
@@ -54,7 +63,7 @@ def _raise_youtube_http_error(error: Exception, action: str) -> None:
     if isinstance(error, YouTubeServiceError):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"O YouTube não pôde concluir {action} agora. Tente novamente mais tarde.",
+            detail=f"O YouTube não pôde concluir {operation_name} agora. Tente novamente mais tarde.",
         ) from error
     if isinstance(error, UnexpectedYouTubeError):
         raise HTTPException(
@@ -81,7 +90,7 @@ def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
         VideoUnavailableError,
         YouTubeServiceError,
     ) as error:
-        _raise_youtube_http_error(error, "analisar")
+        _raise_youtube_http_error(error, "analysis")
 
     return AnalyzeResponse(
         success=True,
@@ -133,7 +142,7 @@ def download_media(payload: DownloadRequest) -> Response:
         VideoUnavailableError,
         YouTubeServiceError,
     ) as error:
-        _raise_youtube_http_error(error, "baixar")
+        _raise_youtube_http_error(error, "download")
 
     return FileResponse(
         path=artifact.path,

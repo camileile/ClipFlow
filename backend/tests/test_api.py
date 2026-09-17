@@ -229,7 +229,7 @@ async def test_download_mp4_returns_binary_headers_and_cleans_up(
         (
             YouTubeServiceError("sensitive yt-dlp detail"),
             502,
-            "O YouTube não pôde concluir baixar agora. Tente novamente mais tarde.",
+            "O YouTube não pôde concluir o download agora. Tente novamente mais tarde.",
         ),
     ],
 )
