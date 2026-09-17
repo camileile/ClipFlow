@@ -1,4 +1,4 @@
 fastapi~=0.141.1
 pydantic~=2.13.5
 uvicorn[standard]~=0.53.0
-yt-dlp==2026.8.19
+yt-dlp[default]==2026.8.19

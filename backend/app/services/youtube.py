@@ -19,6 +19,7 @@ YDL_OPTIONS: dict[str, object] = {
     "extractor_retries": 1,
     "fragment_retries": 1,
     "ignoreconfig": True,
+    "js_runtimes": {"node": {}},
     "noplaylist": True,
     "no_warnings": True,
     "quiet": True,

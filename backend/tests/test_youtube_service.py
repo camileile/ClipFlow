@@ -142,6 +142,7 @@ def test_analyze_youtube_never_downloads_media(
     assert calls["download"] is False
     assert isinstance(calls["options"], dict)
     assert calls["options"]["skip_download"] is True
+    assert calls["options"]["js_runtimes"] == {"node": {}}
     assert list(tmp_path.iterdir()) == []
 
 
