@@ -1,17 +1,16 @@
+import Image from "next/image";
+
 import {
   CheckIcon,
   DownloadIcon,
   PlayIcon,
   VideoIcon,
 } from "@/components/icons";
-import type {
-  AnalyzeResponse,
-  MediaFormat,
-  MediaQuality,
-} from "@/types/media";
+import { formatDuration } from "@/lib/format-duration";
+import type { MediaFormat, MediaInfo, MediaQuality } from "@/types/media";
 
 interface MediaPreviewProps {
-  data: AnalyzeResponse | null;
+  data: MediaInfo | null;
   format: MediaFormat;
   quality: MediaQuality;
   isLoading: boolean;
@@ -28,17 +27,6 @@ const formatOptions: Array<{
   { value: "mp3", label: "MP3", description: "Áudio" },
 ];
 
-function formatDuration(duration: number): string {
-  const minutes = Math.floor(duration / 60)
-    .toString()
-    .padStart(2, "0");
-  const seconds = Math.floor(duration % 60)
-    .toString()
-    .padStart(2, "0");
-
-  return `${minutes}:${seconds}`;
-}
-
 export function MediaPreview({
   data,
   format,
@@ -47,10 +35,14 @@ export function MediaPreview({
   onFormatChange,
   onQualityChange,
 }: MediaPreviewProps) {
-  const title = data?.title ?? "Seu vídeo aparecerá aqui";
-  const author = data?.author ?? "Canal";
-  const duration = formatDuration(data?.duration ?? 0);
-  const platform = data?.platform === "youtube" ? "YouTube" : "Prévia";
+  const title = isLoading
+    ? "Consultando o YouTube..."
+    : (data?.title ?? "Seu vídeo aparecerá aqui");
+  const author = isLoading
+    ? "Isso pode levar alguns segundos"
+    : (data?.author ?? (data ? "Canal não informado" : "Canal"));
+  const duration = data ? formatDuration(data.duration) : "00:00";
+  const platform = data || isLoading ? "YouTube" : "Prévia";
 
   return (
     <section
@@ -66,7 +58,24 @@ export function MediaPreview({
 
       <div className="grid gap-5 md:grid-cols-[1.05fr_1fr] md:gap-6">
         <div className="group relative aspect-video overflow-hidden rounded-2xl border border-line bg-preview">
-          <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(to_right,var(--grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-line)_1px,transparent_1px)] [background-size:28px_28px]" />
+          {data?.thumbnail ? (
+            <>
+              <Image
+                src={data.thumbnail}
+                alt={`Miniatura de ${data.title}`}
+                fill
+                sizes="(max-width: 767px) 100vw, 50vw"
+                className="object-cover"
+              />
+              <div className="absolute inset-0 [background:linear-gradient(to_top,rgb(2_6_23/0.65),transparent_58%)]" />
+            </>
+          ) : (
+            <div
+              className={`absolute inset-0 opacity-60 [background-image:linear-gradient(to_right,var(--grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-line)_1px,transparent_1px)] [background-size:28px_28px] ${
+                isLoading ? "animate-pulse" : ""
+              }`}
+            />
+          )}
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="grid size-16 place-items-center rounded-full border border-white/15 bg-slate-950/80 text-white shadow-xl backdrop-blur-sm transition duration-300 group-hover:scale-105">
               {data ? (
@@ -94,7 +103,11 @@ export function MediaPreview({
                   <CheckIcon className="size-3" />
                 </span>
               )}
-              {data ? "Análise concluída" : "Aguardando seu link"}
+              {data
+                ? "Análise concluída"
+                : isLoading
+                  ? "Analisando vídeo"
+                  : "Aguardando seu link"}
             </div>
             <h2 className="truncate text-lg font-semibold tracking-[-0.02em] text-foreground sm:text-xl">
               {title}
@@ -145,9 +158,14 @@ export function MediaPreview({
               className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground outline-none transition hover:border-accent/35 focus:border-accent focus:ring-3 focus:ring-accent-soft"
             >
               <option value="best">Melhor qualidade</option>
-              <option value="1080p">1080p</option>
-              <option value="720p">720p</option>
-              <option value="480p">480p</option>
+              {data?.qualities.map((availableQuality) => (
+                <option
+                  key={availableQuality}
+                  value={`${availableQuality}p`}
+                >
+                  {availableQuality}p
+                </option>
+              ))}
             </select>
           </label>
 

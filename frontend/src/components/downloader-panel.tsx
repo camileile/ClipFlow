@@ -5,11 +5,7 @@ import { useState, type FormEvent } from "react";
 import { ArrowRightIcon, LinkIcon } from "@/components/icons";
 import { MediaPreview } from "@/components/media-preview";
 import { analyzeMedia, ApiRequestError } from "@/lib/api";
-import type {
-  AnalyzeResponse,
-  MediaFormat,
-  MediaQuality,
-} from "@/types/media";
+import type { MediaFormat, MediaInfo, MediaQuality } from "@/types/media";
 
 type RequestStatus = "idle" | "loading" | "success" | "error";
 
@@ -26,7 +22,7 @@ export function DownloaderPanel() {
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<RequestStatus>("idle");
   const [message, setMessage] = useState("");
-  const [preview, setPreview] = useState<AnalyzeResponse | null>(null);
+  const [preview, setPreview] = useState<MediaInfo | null>(null);
   const [format, setFormat] = useState<MediaFormat>("mp4");
   const [quality, setQuality] = useState<MediaQuality>("best");
 
@@ -48,18 +44,16 @@ export function DownloaderPanel() {
       return;
     }
 
+    setPreview(null);
+    setQuality("best");
     setStatus("loading");
-    setMessage("Analisando o link com segurança...");
+    setMessage("Consultando os metadados públicos do vídeo...");
 
     try {
       const result = await analyzeMedia(normalizedUrl);
-      setPreview(result);
+      setPreview(result.media);
       setStatus("success");
-      setMessage(
-        result.platform === "youtube"
-          ? "Link reconhecido. Esta é uma prévia demonstrativa."
-          : "Link válido. O suporte a esta plataforma está planejado.",
-      );
+      setMessage("Vídeo analisado com sucesso. Nenhum arquivo foi baixado.");
     } catch (error) {
       setStatus("error");
       setMessage(
@@ -99,7 +93,11 @@ export function DownloaderPanel() {
               value={url}
               onChange={(event) => {
                 setUrl(event.target.value);
-                if (status === "error") {
+                if (preview !== null) {
+                  setPreview(null);
+                  setQuality("best");
+                }
+                if (status !== "idle") {
                   setStatus("idle");
                   setMessage("");
                 }
@@ -130,7 +128,7 @@ export function DownloaderPanel() {
         </div>
         <div className="min-h-9 px-1 pt-2.5" aria-live="polite">
           <p id="url-feedback" className={`text-sm ${messageColor}`}>
-            {message || "A análise nesta fase usa dados demonstrativos."}
+            {message || "A análise consulta somente metadados públicos do YouTube."}
           </p>
         </div>
       </form>

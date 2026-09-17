@@ -28,4 +28,5 @@ npm run start      # execução do build
 
 O fluxo de análise depende da API FastAPI disponível em
 `NEXT_PUBLIC_API_URL`. A interface mostra mensagens amigáveis quando o backend
-está indisponível.
+está indisponível e renderiza os metadados reais normalizados pela API. O botão
+de download permanece desativado nesta etapa.
