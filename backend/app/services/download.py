@@ -322,4 +322,3 @@ def download_youtube_mp4(
         temporary_directory.cleanup()
         logger.exception("Unexpected YouTube MP4 download failure")
         raise UnexpectedYouTubeError from error
-

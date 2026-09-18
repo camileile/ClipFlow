@@ -27,4 +27,3 @@ def test_detect_media_tools_reports_partial_installation_as_unavailable(
     )
 
     assert ffmpeg.detect_media_tools().available is False
-

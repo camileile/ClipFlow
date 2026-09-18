@@ -18,4 +18,3 @@ def detect_media_tools() -> MediaTools:
         ffmpeg=shutil.which("ffmpeg"),
         ffprobe=shutil.which("ffprobe"),
     )
-

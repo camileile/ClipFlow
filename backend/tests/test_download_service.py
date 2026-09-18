@@ -209,4 +209,3 @@ def test_download_maps_yt_dlp_error_and_removes_temporary_directory(
 
     assert created_root is not None
     assert not created_root.exists()
-
