@@ -11,6 +11,8 @@ from app.services.download import (
     FFmpegUnavailableError,
     IncompatibleMediaError,
     QualityUnavailableError,
+    UnsupportedBitrateError,
+    download_youtube_mp3,
     download_youtube_mp4,
 )
 from app.services.youtube import (
@@ -102,12 +104,17 @@ def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
 @router.post(
     "/api/download",
     response_class=FileResponse,
-    responses={200: {"content": {"video/mp4": {}}}},
+    responses={200: {"content": {"video/mp4": {}, "audio/mpeg": {}}}},
     tags=["media"],
 )
 def download_media(payload: DownloadRequest) -> Response:
     try:
-        artifact = download_youtube_mp4(payload.url, payload.quality)
+        if payload.format == "mp4":
+            artifact = download_youtube_mp4(payload.url, payload.quality)
+            media_type = "video/mp4"
+        else:
+            artifact = download_youtube_mp3(payload.url, payload.audio_quality)
+            media_type = "audio/mpeg"
     except QualityUnavailableError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -121,17 +128,33 @@ def download_media(payload: DownloadRequest) -> Response:
     except FFmpegUnavailableError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="O FFmpeg é necessário para este download, mas não está disponível no servidor.",
+            detail=(
+                "O FFmpeg é necessário para criar este arquivo, "
+                "mas não está disponível no servidor."
+            ),
+        ) from error
+    except UnsupportedBitrateError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O bitrate selecionado não é suportado.",
         ) from error
     except IncompatibleMediaError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Não foi possível criar um MP4 compatível nesta qualidade.",
+            detail=(
+                "Não foi possível encontrar áudio compatível para este vídeo."
+                if payload.format == "mp3"
+                else "Não foi possível criar um MP4 compatível nesta qualidade."
+            ),
         ) from error
     except DownloadProcessingError as error:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="O arquivo MP4 não pôde ser preparado. Tente outra qualidade.",
+            detail=(
+                "O arquivo MP3 não pôde ser convertido. Tente novamente."
+                if payload.format == "mp3"
+                else "O arquivo MP4 não pôde ser preparado. Tente outra qualidade."
+            ),
         ) from error
     except (
         InvalidYouTubeUrlError,
@@ -147,6 +170,6 @@ def download_media(payload: DownloadRequest) -> Response:
     return FileResponse(
         path=artifact.path,
         filename=artifact.filename,
-        media_type="video/mp4",
+        media_type=media_type,
         background=BackgroundTask(artifact.cleanup),
     )

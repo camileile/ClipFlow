@@ -4,6 +4,8 @@ from app.schemas.media import (
     DownloadRequest,
     MediaFormat,
     MediaInfo,
+    MP3DownloadRequest,
+    MP4DownloadRequest,
 )
 from app.schemas.system import HealthResponse
 
@@ -14,4 +16,6 @@ __all__ = [
     "HealthResponse",
     "MediaFormat",
     "MediaInfo",
+    "MP3DownloadRequest",
+    "MP4DownloadRequest",
 ]
