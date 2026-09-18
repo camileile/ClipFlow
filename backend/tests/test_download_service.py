@@ -23,6 +23,28 @@ from app.services.ffmpeg import MediaTools
 from app.services.youtube import VideoUnavailableError, YouTubeServiceError
 
 
+def tiktok_combined_info(duration: int = 18) -> dict[str, Any]:
+    return {
+        "id": "7412345678901234567",
+        "description": "TikTok teste",
+        "uploader": "@clipflow",
+        "duration": duration,
+        "webpage_url": "https://www.tiktok.com/@clipflow/video/7412345678901234567",
+        "formats": [
+            {
+                "format_id": "download_addr-0",
+                "vcodec": "h264",
+                "acodec": "aac",
+                "ext": "mp4",
+                "height": 720,
+                "fps": 30,
+                "tbr": 1400,
+                "filesize_approx": 2_500_000,
+            }
+        ],
+    }
+
+
 def test_temporary_cleanup_retries_windows_file_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -477,3 +499,113 @@ def test_download_mp3_maps_conversion_error_and_cleans_up(
 
     assert created_root is not None
     assert not created_root.exists()
+
+
+def test_download_tiktok_mp4_reuses_shared_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            calls["options"] = options
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extract_info(self, _: str, download: bool) -> dict[str, Any]:
+            assert download is True
+            options = calls["options"]
+            assert isinstance(options, dict)
+            output_template = options["outtmpl"]
+            assert isinstance(output_template, str)
+            Path(output_template.replace("%(ext)s", "mp4")).write_bytes(b"tiktok-mp4")
+            return tiktok_combined_info()
+
+    monkeypatch.setattr(download, "extract_tiktok_info", lambda _: tiktok_combined_info())
+    monkeypatch.setattr(download, "YoutubeDL", FakeYoutubeDL)
+
+    artifact = download.download_media_mp4(
+        "https://www.tiktok.com/@clipflow/video/7412345678901234567",
+        720,
+    )
+    temporary_root = artifact.path.parent
+
+    assert artifact.path.read_bytes() == b"tiktok-mp4"
+    assert artifact.filename == "TikTok teste.mp4"
+    assert isinstance(calls["options"], dict)
+    assert calls["options"]["format"] == "download_addr-0"
+    artifact.cleanup()
+    assert not temporary_root.exists()
+
+
+def test_download_tiktok_mp3_accepts_combined_audio_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            calls["options"] = options
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extract_info(self, _: str, download: bool) -> dict[str, Any]:
+            assert download is True
+            options = calls["options"]
+            assert isinstance(options, dict)
+            output_template = options["outtmpl"]
+            assert isinstance(output_template, str)
+            Path(output_template.replace("%(ext)s", "mp3")).write_bytes(b"tiktok-mp3")
+            return tiktok_combined_info()
+
+    monkeypatch.setattr(download, "extract_tiktok_info", lambda _: tiktok_combined_info())
+    monkeypatch.setattr(download, "YoutubeDL", FakeYoutubeDL)
+    monkeypatch.setattr(
+        download,
+        "detect_media_tools",
+        lambda: MediaTools(
+            ffmpeg="C:/tools/ffmpeg.exe",
+            ffprobe="C:/tools/ffprobe.exe",
+        ),
+    )
+
+    artifact = download.download_media_mp3(
+        "https://vm.tiktok.com/ZMshort/",
+        192,
+    )
+    temporary_root = artifact.path.parent
+
+    assert artifact.path.read_bytes() == b"tiktok-mp3"
+    assert artifact.filename == "TikTok teste.mp3"
+    assert isinstance(calls["options"], dict)
+    assert calls["options"]["format"] == "download_addr-0"
+    assert calls["options"]["postprocessors"][0]["preferredquality"] == "192"
+    artifact.cleanup()
+    assert not temporary_root.exists()
+
+
+def test_download_tiktok_applies_shared_duration_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        download,
+        "extract_tiktok_info",
+        lambda _: tiktok_combined_info(duration=30 * 60 + 1),
+    )
+
+    with pytest.raises(DownloadLimitExceededError):
+        download.download_media_mp4("https://vm.tiktok.com/ZMshort/", 720)
+
+
+def test_tiktok_filename_uses_platform_fallback_without_description() -> None:
+    assert download._download_title({"title": None, "description": ""}, "tiktok") == (
+        "clipflow-tiktok"
+    )

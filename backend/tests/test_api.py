@@ -72,7 +72,11 @@ async def test_analyze_youtube_url_returns_real_contract(
     monkeypatch: pytest.MonkeyPatch,
     sample_media: MediaInfo,
 ) -> None:
-    monkeypatch.setattr(routes, "analyze_youtube", lambda _: sample_media)
+    monkeypatch.setattr(
+        routes,
+        "analyze_media_url",
+        lambda _: ("youtube", sample_media),
+    )
 
     response = await client.post(
         "/api/analyze",
@@ -106,6 +110,36 @@ async def test_analyze_youtube_url_returns_real_contract(
     }
 
 
+async def test_analyze_tiktok_url_returns_shared_contract(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = MediaInfo(
+        id="7412345678901234567",
+        title="TikTok público",
+        author="@clipflow",
+        duration=18,
+        thumbnail=None,
+        original_url="https://www.tiktok.com/@clipflow/video/7412345678901234567",
+        qualities=[720],
+        formats=[],
+    )
+    monkeypatch.setattr(
+        routes,
+        "analyze_media_url",
+        lambda _: ("tiktok", media),
+    )
+
+    response = await client.post(
+        "/api/analyze",
+        json={"url": "https://vm.tiktok.com/ZMshort/"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["platform"] == "tiktok"
+    assert response.json()["media"]["title"] == "TikTok público"
+
+
 async def test_analyze_rejects_malformed_url(client: AsyncClient) -> None:
     response = await client.post("/api/analyze", json={"url": "not-a-url"})
 
@@ -120,7 +154,7 @@ async def test_analyze_rejects_unsupported_domain(client: AsyncClient) -> None:
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Esta plataforma ainda não é suportada. Use um link do YouTube."
+        "detail": "Esta plataforma ainda não é suportada. Use YouTube ou TikTok."
     }
 
 
@@ -131,7 +165,11 @@ async def test_analyze_handles_unavailable_video(
     def unavailable(_: object) -> MediaInfo:
         raise VideoUnavailableError
 
-    monkeypatch.setattr(routes, "analyze_youtube", unavailable)
+    monkeypatch.setattr(
+        routes,
+        "analyze_media_url",
+        lambda url: ("youtube", unavailable(url)),
+    )
 
     response = await client.post(
         "/api/analyze",
@@ -151,7 +189,11 @@ async def test_analyze_hides_unexpected_extractor_error(
     def unexpected(_: object) -> MediaInfo:
         raise UnexpectedYouTubeError("internal extractor detail")
 
-    monkeypatch.setattr(routes, "analyze_youtube", unexpected)
+    monkeypatch.setattr(
+        routes,
+        "analyze_media_url",
+        lambda url: ("youtube", unexpected(url)),
+    )
 
     response = await client.post(
         "/api/analyze",
@@ -229,7 +271,7 @@ async def test_download_mp4_returns_binary_headers_and_cleans_up(
         (
             YouTubeServiceError("sensitive yt-dlp detail"),
             502,
-            "O YouTube não pôde concluir o download agora. Tente novamente mais tarde.",
+            "A plataforma não pôde concluir o download agora. Tente novamente mais tarde.",
         ),
     ],
 )
@@ -288,7 +330,7 @@ async def test_download_rejects_unsupported_domain(
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Esta plataforma ainda não é suportada. Use um link do YouTube."
+        "detail": "Esta plataforma ainda não é suportada. Use YouTube ou TikTok."
     }
 
 

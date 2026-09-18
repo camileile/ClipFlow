@@ -152,6 +152,29 @@ def test_progress_hook_defers_fragmented_stream_cancellation_until_safe_point() 
         )
 
 
+def test_tiktok_progress_uses_generic_media_stage() -> None:
+    updates: list[DownloadProgress] = []
+    hooks, _ = _progress_hooks(
+        FormatSelection("download_addr-0", requires_ffmpeg=False, estimated_filesize=100),
+        "mp4",
+        updates.append,
+        lambda: False,
+        platform="tiktok",
+    )
+
+    hooks[0](
+        {
+            "status": "downloading",
+            "downloaded_bytes": 50,
+            "total_bytes": 100,
+            "info_dict": {"format_id": "download_addr-0"},
+        }
+    )
+
+    assert updates[0].stage == "Downloading media"
+    assert updates[0].progress == 50.0
+
+
 def test_worker_throttles_repeated_progress_updates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -194,6 +217,41 @@ def test_worker_throttles_repeated_progress_updates(
     result, version = manager.get_versioned(state.job_id)
     assert result.status == "ready"
     assert version == 4  # start, first update, throttled update at 300 ms, ready
+    manager.complete_file_delivery(state.job_id)
+
+
+def test_tiktok_job_uses_shared_worker_and_keeps_platform_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = JobManager()
+    state = manager.create("tiktok")
+    artifact = make_artifact()
+    seen: dict[str, object] = {}
+
+    def fake_download(
+        url: object,
+        quality: int,
+        **_: object,
+    ) -> DownloadArtifact:
+        seen["url"] = str(url)
+        seen["quality"] = quality
+        return artifact
+
+    monkeypatch.setattr(jobs, "download_youtube_mp4", fake_download)
+    jobs.process_download_job(
+        manager,
+        state.job_id,
+        MP4DownloadRequest(
+            url="https://vm.tiktok.com/ZMshort/",
+            format="mp4",
+            quality=720,
+        ),
+    )
+
+    result = manager.get(state.job_id)
+    assert result.status == "ready"
+    assert result.platform == "tiktok"
+    assert seen == {"url": "https://vm.tiktok.com/ZMshort/", "quality": 720}
     manager.complete_file_delivery(state.job_id)
 
 
