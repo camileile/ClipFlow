@@ -22,12 +22,12 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={toggleTheme}
-      className="grid size-10 place-items-center rounded-full border border-line bg-surface text-muted shadow-xs transition hover:-translate-y-0.5 hover:border-accent/35 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      className="theme-toggle retro-button grid size-7 min-h-0 place-items-center p-0 text-muted"
       aria-label="Alternar entre tema claro e escuro"
-      title="Alternar tema"
+      title="Alternar modo diurno/noturno"
     >
-      <SunIcon className="theme-icon-sun size-[18px]" />
-      <MoonIcon className="theme-icon-moon size-[18px]" />
+      <SunIcon className="theme-icon-sun size-4" />
+      <MoonIcon className="theme-icon-moon size-4" />
     </button>
   );
 }
