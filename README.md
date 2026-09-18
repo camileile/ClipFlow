@@ -3,12 +3,27 @@
 **Baixe. Converta. Simples assim.**
 
 O ClipFlow é uma aplicação web para análise, download e futura conversão de
-mídias. A aplicação consulta metadados reais de vídeos públicos do YouTube,
-apresenta as qualidades disponíveis e permite baixar vídeos em MP4 ou converter
-o áudio para MP3.
+mídias. A aplicação consulta metadados reais de vídeos públicos do YouTube e
+TikTok, apresenta as qualidades disponíveis e permite baixar vídeos em MP4 ou
+converter o áudio para MP3.
 
-> **Status atual:** análise e downloads MP4/MP3 são reais. As demais plataformas
-> continuam fora do escopo.
+> **Status atual:** análise e downloads MP4/MP3 são reais para YouTube e TikTok.
+> Instagram e X continuam fora do escopo.
+
+## Supported Platforms
+
+- **YouTube:** análise, MP4 e MP3.
+- **TikTok:** análise, MP4 e MP3 para vídeos públicos que o extractor consiga
+  acessar normalmente.
+- **Instagram:** planejado.
+- **X:** planejado.
+
+O detector valida protocolo e hostname antes de chamar o `yt-dlp`; URLs curtas
+oficiais do TikTok, como `vm.tiktok.com`, são entregues ao próprio extractor
+para resolução. A disponibilidade depende do conteúdo público oferecido pela
+plataforma. O ClipFlow não usa login, cookies, scraping manual, bypass de DRM ou
+remoção de marca d'água; quando a mídia fornecida contém watermark, ela pode
+permanecer no arquivo final.
 
 ## Parte 2 — análise real do YouTube
 
@@ -21,6 +36,18 @@ O payload bruto do `yt-dlp` nunca é enviado ao navegador. Formatos redundantes
 são reduzidos a opções representativas e as resoluções são deduplicadas e
 ordenadas. Erros de vídeo privado, removido, indisponível ou falha externa são
 convertidos em respostas HTTP amigáveis, sem expor detalhes internos.
+
+## Parte 7 — suporte ao TikTok
+
+A detecção de plataforma agora é centralizada e reconhece hosts oficiais do
+YouTube e TikTok por parsing de URL. Cada provider usa a API Python do `yt-dlp`
+para extração, mas ambos retornam o mesmo contrato normalizado e seguem pelo
+mesmo pipeline de download, jobs, progresso, cancelamento, limites e cleanup.
+
+No TikTok, título/descrição, autor, duração, thumbnail e resoluções são usados
+somente quando o extractor os fornece. MP4 aceita os formatos combinados comuns
+da plataforma; MP3 pode extrair o áudio do stream combinado via FFmpeg. Nenhuma
+técnica de remoção de watermark ou contorno de restrições é aplicada.
 
 ## Parte 3 — downloads MP4
 
@@ -118,9 +145,10 @@ isolada em `src/lib/api.ts`, com respostas verificadas em tempo de execução e
 tipadas em `src/types/media.ts`.
 
 O backend mantém as rotas responsáveis apenas pelo protocolo HTTP. A validação
-de domínio e a extração de metadados ficam no serviço YouTube; seleção de
-streams de vídeo/áudio, conversão MP3, limites, nome seguro e ciclo dos arquivos
-temporários ficam no serviço de download. O `JobManager` protege o estado
+de domínio fica no detector central; os providers YouTube e TikTok cuidam da
+extração específica e entregam um `MediaInfo` normalizado. Seleção de streams de
+vídeo/áudio, conversão MP3, limites, nome seguro e ciclo dos arquivos temporários
+ficam no serviço compartilhado de download. O `JobManager` protege o estado
 concorrente, publica versões para SSE e controla cancelamento e TTL. O CORS
 aceita apenas as origens locais esperadas nas portas `3000` e `3001` e expõe
 somente o cabeçalho necessário para o nome do arquivo.
@@ -399,8 +427,8 @@ cd backend
 python -m pytest
 ```
 
-Os testes não acessam o YouTube. A camada de extração e download é substituída
-por mocks. A suíte cobre os cenários anteriores e também jobs concorrentes,
+Os testes não acessam YouTube ou TikTok. As camadas de extração e download são
+substituídas por mocks. A suíte cobre os cenários anteriores e também jobs concorrentes,
 UUID, throttle, progresso determinado e indeterminado, velocidade, ETA, SSE,
 keepalive, cancelamento, entrega MP4/MP3 e limpeza por resposta ou TTL.
 
@@ -410,9 +438,9 @@ Implementado:
 
 - base Next.js responsiva com temas claro e escuro;
 - estados de campo vazio, URL inválida, carregamento, sucesso e erro;
-- thumbnail, título, canal, duração e qualidades reais do YouTube;
+- thumbnail, título/descrição, autor, duração e qualidades reais de YouTube e TikTok;
 - card de prévia e controles visuais de formato e qualidade;
-- indicação das plataformas planejadas;
+- indicação das plataformas suportadas e planejadas;
 - API FastAPI com health check e análise real de metadados;
 - download MP4 real com resolução validada novamente no backend;
 - merge/remux de vídeo e áudio separados usando FFmpeg quando necessário;
@@ -420,15 +448,15 @@ Implementado:
 - conversão MP3 em 128, 192, 256 ou 320 kbps usando somente o stream de áudio;
 - jobs em memória com progresso real, velocidade, ETA, SSE e cancelamento;
 - lifecycle do arquivo pronto com retirada posterior e TTL automático;
-- validação restrita a hosts do YouTube e timeout/retries limitados;
+- validação restrita a hosts oficiais de YouTube e TikTok, com timeout/retries limitados;
 - integração frontend/backend via variável de ambiente;
-- testes determinísticos da API e do serviço YouTube.
+- testes determinísticos da API e dos providers YouTube/TikTok.
 
 Ainda não implementado:
 
 - persistência ou recuperação de jobs após reinício/refresh;
 - autenticação, banco de dados, filas ou armazenamento;
-- Instagram, TikTok ou X/Twitter;
+- Instagram ou X/Twitter;
 - Docker, pagamentos ou analytics.
 
 ## Próximos passos sugeridos
@@ -436,4 +464,4 @@ Ainda não implementado:
 1. Avaliar Redis e workers externos antes de múltiplas instâncias ou cargas maiores.
 2. Adicionar recuperação do job no frontend somente quando houver persistência.
 3. Considerar metadados ID3 e capa apenas em uma etapa separada.
-4. Expandir plataformas somente após estabilizar o fluxo do YouTube.
+4. Avaliar novas plataformas somente em etapas próprias e sem duplicar o pipeline.
