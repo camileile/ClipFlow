@@ -303,6 +303,7 @@ def _base_download_options(
         "js_runtimes": {"node": {}},
         "max_filesize": MAX_DOWNLOAD_FILESIZE_BYTES,
         "noplaylist": True,
+        "noprogress": True,
         "no_warnings": True,
         "outtmpl": str(temporary_path / "media.%(ext)s"),
         "paths": {"home": str(temporary_path), "temp": str(temporary_path)},

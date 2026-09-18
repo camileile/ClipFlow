@@ -320,6 +320,7 @@ def test_download_mp3_uses_selected_bitrate_and_audio_only_stream(
 
     assert isinstance(options, dict)
     assert options["format"] == "251"
+    assert options["noprogress"] is True
     assert options["postprocessors"] == [
         {
             "key": "FFmpegExtractAudio",
