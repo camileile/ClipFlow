@@ -3,8 +3,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { DownloadProgress } from "@/components/download-progress";
-import { ArrowRightIcon, LinkIcon } from "@/components/icons";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ClipFlowIcon,
+  LinkIcon,
+} from "@/components/icons";
 import { MediaPreview } from "@/components/media-preview";
+import {
+  RetroWindow,
+  type RetroTabId,
+} from "@/components/retro-window";
 import {
   analyzeMedia,
   ApiRequestError,
@@ -13,6 +22,7 @@ import {
   downloadJobFile,
   subscribeToDownloadJob,
 } from "@/lib/api";
+import { formatBytes, formatEta, formatSpeed } from "@/lib/format-transfer";
 import type {
   AudioQuality,
   DownloadJobState,
@@ -62,6 +72,7 @@ function isValidWebUrl(value: string): boolean {
 }
 
 export function DownloaderPanel() {
+  const [activeTab, setActiveTab] = useState<RetroTabId>("downloader");
   const [url, setUrl] = useState("");
   const [requestState, setRequestState] = useState<RequestState>(INITIAL_STATE);
   const [preview, setPreview] = useState<MediaInfo | null>(null);
@@ -293,110 +304,280 @@ export function DownloaderPanel() {
   const messageColor =
     requestState.status === "error"
       ? "text-danger"
+      : requestState.status === "cancelled"
+        ? "text-warning"
       : ["ready", "completed"].includes(requestState.status)
         ? "text-success-strong"
         : "text-muted";
 
-  return (
-    <div className="mx-auto w-full max-w-5xl rounded-[1.8rem] border border-line bg-panel p-3 shadow-panel backdrop-blur-xl sm:p-4 lg:p-5">
-      <form onSubmit={handleSubmit} noValidate>
-        <label
-          htmlFor="media-url"
-          className="mb-2.5 ml-1 block text-sm font-semibold text-foreground"
-        >
-          Link da mídia
-        </label>
-        <div className="flex flex-col gap-2.5 rounded-2xl border border-line-strong bg-surface p-2 transition focus-within:border-accent focus-within:ring-4 focus-within:ring-accent-soft sm:flex-row">
-          <div className="flex min-w-0 flex-1 items-center gap-3 px-2 sm:px-3">
-            <LinkIcon className="size-5 shrink-0 text-muted" />
-            <input
-              id="media-url"
-              name="url"
-              type="url"
-              inputMode="url"
-              autoComplete="url"
-              value={url}
-              disabled={isBusy}
-              onChange={(event) => {
-                setUrl(event.target.value);
-                if (preview !== null) {
-                  setPreview(null);
-                  setQuality("best");
-                  setAudioQuality(192);
-                }
-                setRequestState(INITIAL_STATE);
-              }}
-              placeholder="Cole um link do YouTube..."
-              aria-describedby="url-feedback"
-              aria-invalid={requestState.status === "error" && preview === null}
-              className="h-12 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-placeholder disabled:cursor-not-allowed disabled:opacity-70"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isBusy}
-            className="group flex h-12 items-center justify-center gap-2 rounded-xl bg-accent px-6 text-sm font-bold text-white shadow-accent transition hover:-translate-y-0.5 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:translate-y-0 disabled:opacity-70"
-          >
-            {isAnalyzing ? (
-              <>
-                <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                Analisando
-              </>
-            ) : activeState ? (
-              "Download em andamento"
-            ) : (
-              <>
-                Analisar
-                <ArrowRightIcon className="size-4 transition-transform group-hover:translate-x-0.5" />
-              </>
-            )}
-          </button>
-        </div>
-        <div className="min-h-9 px-1 pt-2.5" aria-live="polite">
-          <p id="url-feedback" className={`text-sm ${messageColor}`}>
-            {requestState.message ||
-              "A análise consulta somente metadados públicos do YouTube."}
-          </p>
-        </div>
-      </form>
+  const statusText =
+    requestState.status === "idle"
+      ? "Pronto"
+      : requestState.status === "analyzing"
+        ? "Lendo informações da mídia..."
+        : requestState.message;
+  const statusTone =
+    requestState.status === "error"
+      ? "danger"
+      : requestState.status === "cancelled"
+        ? "warning"
+      : ["ready", "completed"].includes(requestState.status)
+        ? "success"
+        : isBusy
+          ? "busy"
+          : "default";
 
-      {activeState && (
-        <DownloadProgress
-          job={activeState.job}
-          isCancelling={activeState.isCancelling}
-          canCancel={activeState.status !== "retrieving"}
-          onCancel={handleCancel}
-        />
+  const activityDetails = activeState
+    ? [
+        ["Status", activeState.job.stage],
+        ["Formato", format.toUpperCase()],
+        [
+          "Qualidade",
+          format === "mp4"
+            ? quality === "best"
+              ? `${preview?.qualities[0] ?? "—"}p`
+              : quality
+            : `${audioQuality} kbps`,
+        ],
+        [
+          "Progresso",
+          activeState.job.progress === null
+            ? "Indeterminado"
+            : `${Math.round(activeState.job.progress)}%`,
+        ],
+        ["Transferido", formatBytes(activeState.job.downloaded_bytes) ?? "—"],
+        ["Velocidade", formatSpeed(activeState.job.speed) ?? "—"],
+        ["Tempo restante", formatEta(activeState.job.eta) ?? "—"],
+      ]
+    : [];
+
+  return (
+    <RetroWindow
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      statusText={statusText}
+      statusTone={statusTone}
+    >
+      {activeTab === "downloader" && (
+        <div className="space-y-3">
+          <section className="retro-group" aria-labelledby="source-title">
+            <h2 id="source-title" className="retro-group-title">
+              <LinkIcon className="size-4 text-accent-strong" />
+              Fonte
+            </h2>
+            <div className="retro-group-body">
+              <form onSubmit={handleSubmit} noValidate>
+                <label
+                  htmlFor="media-url"
+                  className="mb-1.5 block text-[13px] font-bold text-foreground"
+                >
+                  URL da mídia:
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    id="media-url"
+                    name="url"
+                    type="url"
+                    inputMode="url"
+                    autoComplete="url"
+                    value={url}
+                    disabled={isBusy}
+                    onChange={(event) => {
+                      setUrl(event.target.value);
+                      if (preview !== null) {
+                        setPreview(null);
+                        setQuality("best");
+                        setAudioQuality(192);
+                      }
+                      setRequestState(INITIAL_STATE);
+                    }}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    aria-describedby="url-feedback"
+                    aria-invalid={requestState.status === "error" && preview === null}
+                    className="retro-inset h-10 min-w-0 flex-1 px-3 text-sm outline-none placeholder:text-placeholder disabled:cursor-not-allowed disabled:opacity-65"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isBusy}
+                    className="retro-button retro-button-primary flex h-10 min-w-32 items-center justify-center gap-2 px-5"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <span className="size-3 animate-pulse border border-white bg-white/40" />
+                        Analisando...
+                      </>
+                    ) : activeState ? (
+                      "Em andamento"
+                    ) : (
+                      <>
+                        Analisar
+                        <ArrowRightIcon className="size-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div
+                  className={`retro-alert mt-3 min-h-9 px-3 py-2 ${
+                    requestState.status === "error"
+                      ? "retro-alert-danger"
+                      : requestState.status === "cancelled"
+                        ? "retro-alert-warning"
+                      : ["ready", "completed"].includes(requestState.status)
+                        ? "retro-alert-success"
+                        : ""
+                  }`}
+                  aria-live="polite"
+                >
+                  <p id="url-feedback" className={`text-[13px] leading-5 ${messageColor}`}>
+                    {requestState.status === "error" && (
+                      <strong className="mr-1 text-danger">Atenção:</strong>
+                    )}
+                    {requestState.message ||
+                      "Insira um link público do YouTube para ler as informações da mídia."}
+                  </p>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          {activeState && (
+            <DownloadProgress
+              job={activeState.job}
+              isCancelling={activeState.isCancelling}
+              canCancel={activeState.status !== "retrieving"}
+              onCancel={handleCancel}
+            />
+          )}
+
+          <MediaPreview
+            data={preview}
+            format={format}
+            quality={quality}
+            audioQuality={audioQuality}
+            isLoading={isAnalyzing}
+            isDownloading={activeState !== null}
+            onDownload={handleDownload}
+            onFormatChange={(nextFormat) => {
+              setFormat(nextFormat);
+              if (nextFormat === "mp4") {
+                setQuality("best");
+              } else {
+                setAudioQuality(192);
+              }
+              if (preview) {
+                setRequestState({
+                  status: "ready",
+                  message:
+                    nextFormat === "mp3"
+                      ? "Escolha o bitrate para converter e baixar o MP3."
+                      : "Escolha a resolução para baixar o MP4.",
+                });
+              }
+            }}
+            onAudioQualityChange={setAudioQuality}
+            onQualityChange={setQuality}
+          />
+        </div>
       )}
 
-      <MediaPreview
-        data={preview}
-        format={format}
-        quality={quality}
-        audioQuality={audioQuality}
-        isLoading={isAnalyzing}
-        isDownloading={activeState !== null}
-        onDownload={handleDownload}
-        onFormatChange={(nextFormat) => {
-          setFormat(nextFormat);
-          if (nextFormat === "mp4") {
-            setQuality("best");
-          } else {
-            setAudioQuality(192);
-          }
-          if (preview) {
-            setRequestState({
-              status: "ready",
-              message:
-                nextFormat === "mp3"
-                  ? "Escolha o bitrate para converter e baixar o MP3."
-                  : "Escolha a resolução para baixar o MP4.",
-            });
-          }
-        }}
-        onAudioQualityChange={setAudioQuality}
-        onQualityChange={setQuality}
-      />
-    </div>
+      {activeTab === "activity" && (
+        <section className="retro-group" aria-labelledby="activity-title">
+          <h2 id="activity-title" className="retro-group-title">
+            Atividade atual
+          </h2>
+          <div className="retro-group-body min-h-[470px]">
+            {activeState ? (
+              <div className="space-y-3">
+                <DownloadProgress
+                  job={activeState.job}
+                  isCancelling={activeState.isCancelling}
+                  canCancel={activeState.status !== "retrieving"}
+                  onCancel={handleCancel}
+                />
+                <dl className="retro-inset grid grid-cols-[minmax(110px,0.35fr)_1fr] text-[13px]">
+                  {activityDetails.map(([label, value]) => (
+                    <div key={label} className="contents">
+                      <dt className="border-b border-line bg-surface-elevated px-3 py-2 font-bold">
+                        {label}
+                      </dt>
+                      <dd className="min-w-0 border-b border-line px-3 py-2 font-mono">
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ) : (
+              <div className="retro-inset grid min-h-52 place-items-center p-6 text-center">
+                <div>
+                  <span className="mx-auto mb-3 grid size-10 place-items-center border border-line-strong bg-surface-elevated text-success-strong">
+                    <CheckIcon className="size-5" />
+                  </span>
+                  <p className="font-bold">Nenhum download ativo.</p>
+                  <p className="mt-1 text-[13px] text-muted">
+                    Inicie uma operação na aba Downloader para acompanhar o job aqui.
+                  </p>
+                  {requestState.message && (
+                    <p className="mt-4 border-t border-line pt-3 text-[13px] text-muted">
+                      Último evento: {requestState.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === "about" && (
+        <section className="retro-group" aria-labelledby="about-title">
+          <h2 id="about-title" className="retro-group-title">
+            Sobre o ClipFlow
+          </h2>
+          <div className="retro-group-body min-h-[470px]">
+            <div className="retro-inset mx-auto max-w-2xl p-5 sm:p-7">
+              <div className="flex items-start gap-4 border-b border-line pb-5">
+                <span className="retro-app-icon size-12">
+                  <ClipFlowIcon className="size-6" />
+                </span>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">ClipFlow</h2>
+                  <p className="mt-1 font-mono text-[12px] text-muted">
+                    Media Download Utility · Version 0.6
+                  </p>
+                </div>
+              </div>
+              <p className="mt-5 text-sm leading-6">
+                Uma ferramenta direta para analisar vídeos públicos do YouTube e
+                preparar arquivos MP4 ou MP3 com progresso real, velocidade, ETA
+                e cancelamento.
+              </p>
+              <dl className="mt-5 grid gap-2 text-[13px] sm:grid-cols-2">
+                <div className="border border-line bg-surface-elevated p-3">
+                  <dt className="font-bold">Plataforma</dt>
+                  <dd className="mt-1 text-muted">YouTube</dd>
+                </div>
+                <div className="border border-line bg-surface-elevated p-3">
+                  <dt className="font-bold">Formatos</dt>
+                  <dd className="mt-1 text-muted">MP4 e MP3</dd>
+                </div>
+                <div className="border border-line bg-surface-elevated p-3">
+                  <dt className="font-bold">Processamento</dt>
+                  <dd className="mt-1 text-muted">yt-dlp + FFmpeg</dd>
+                </div>
+                <div className="border border-line bg-surface-elevated p-3">
+                  <dt className="font-bold">Conexão</dt>
+                  <dd className="mt-1 text-muted">Jobs temporários via SSE</dd>
+                </div>
+              </dl>
+              <p className="mt-5 border-l-4 border-accent bg-accent-soft px-4 py-3 text-[13px] leading-5 text-foreground">
+                Use o ClipFlow somente para conteúdo que você tenha permissão ou
+                direito de baixar.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+    </RetroWindow>
   );
 }
