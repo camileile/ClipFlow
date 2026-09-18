@@ -28,6 +28,13 @@ from app.services.download import (
     download_youtube_mp3,
     download_youtube_mp4,
 )
+from app.services.instagram import (
+    InstagramAuthenticationRequiredError,
+    InstagramCarouselError,
+    InstagramNoVideoError,
+    InstagramRateLimitedError,
+    InstagramServiceError,
+)
 from app.services.platforms import MediaPlatform, detect_platform
 from app.services.youtube import (
     InvalidYouTubeUrlError,
@@ -390,9 +397,19 @@ def _friendly_error(error: Exception, media_format: str) -> str:
             else "O arquivo MP4 não pôde ser preparado. Tente outra qualidade."
         )
     if isinstance(error, InvalidYouTubeUrlError):
-        return "Informe uma URL válida do YouTube ou TikTok."
+        return "Informe uma URL válida do YouTube, TikTok ou Instagram."
     if isinstance(error, UnsupportedPlatformError):
-        return "Esta plataforma ainda não é suportada. Use YouTube ou TikTok."
+        return "Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram."
+    if isinstance(error, InstagramNoVideoError):
+        return "Este post do Instagram não contém um vídeo compatível."
+    if isinstance(error, InstagramCarouselError):
+        return "Carrosséis do Instagram ainda não são suportados."
+    if isinstance(error, InstagramAuthenticationRequiredError):
+        return "Esta mídia do Instagram é privada ou exige login."
+    if isinstance(error, InstagramRateLimitedError):
+        return "O Instagram bloqueou temporariamente a solicitação. Tente novamente mais tarde."
+    if isinstance(error, InstagramServiceError):
+        return "O Instagram não pôde concluir o download agora. Tente novamente mais tarde."
     if isinstance(error, PrivateVideoError):
         return "Este vídeo é privado e não pode ser baixado."
     if isinstance(error, RemovedVideoError):
