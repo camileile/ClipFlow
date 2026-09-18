@@ -2,6 +2,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
+from app.config import MP3Bitrate
+
 
 class AnalyzeRequest(BaseModel):
     url: HttpUrl = Field(description="Public YouTube URL to analyze")
@@ -20,9 +22,7 @@ class MP3DownloadRequest(BaseModel):
 
     url: HttpUrl = Field(description="Public YouTube URL to download")
     format: Literal["mp3"]
-    audio_quality: Literal[128, 192, 256, 320] = Field(
-        description="Target MP3 bitrate in kbps"
-    )
+    audio_quality: MP3Bitrate = Field(description="Target MP3 bitrate in kbps")
 
 
 DownloadRequest = Annotated[
