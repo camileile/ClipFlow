@@ -129,6 +129,29 @@ def test_progress_hook_interrupts_when_cancelled() -> None:
         hooks[0]({"status": "downloading"})
 
 
+def test_progress_hook_defers_fragmented_stream_cancellation_until_safe_point() -> None:
+    hooks, _ = _progress_hooks(
+        FormatSelection("311", requires_ffmpeg=False, estimated_filesize=None),
+        "mp4",
+        None,
+        lambda: True,
+    )
+
+    hooks[0](
+        {
+            "status": "downloading",
+            "info_dict": {"format_id": "311", "protocol": "m3u8_native"},
+        }
+    )
+    with pytest.raises(DownloadCancelledError):
+        hooks[0](
+            {
+                "status": "finished",
+                "info_dict": {"format_id": "311", "protocol": "m3u8_native"},
+            }
+        )
+
+
 def test_worker_throttles_repeated_progress_updates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

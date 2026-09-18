@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -6,6 +7,7 @@ from yt_dlp.utils import DownloadError
 
 from app.services import download
 from app.services.download import (
+    DownloadArtifact,
     DownloadProcessingError,
     DownloadLimitExceededError,
     FFmpegUnavailableError,
@@ -19,6 +21,34 @@ from app.services.download import (
 )
 from app.services.ffmpeg import MediaTools
 from app.services.youtube import VideoUnavailableError, YouTubeServiceError
+
+
+def test_temporary_cleanup_retries_windows_file_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temporary_directory = tempfile.TemporaryDirectory(prefix="clipflow-test-")
+    temporary_root = Path(temporary_directory.name)
+    original_cleanup = temporary_directory.cleanup
+    attempts = 0
+
+    def flaky_cleanup() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError("file is temporarily locked")
+        original_cleanup()
+
+    monkeypatch.setattr(temporary_directory, "cleanup", flaky_cleanup)
+    monkeypatch.setattr(download.time, "sleep", lambda _: None)
+
+    DownloadArtifact(
+        path=temporary_root / "media.mp4",
+        filename="media.mp4",
+        _temporary_directory=temporary_directory,
+    ).cleanup()
+
+    assert attempts == 3
+    assert not temporary_root.exists()
 
 
 def progressive_info(**overrides: object) -> dict[str, Any]:
@@ -138,6 +168,27 @@ def test_select_mp4_formats_combines_compatible_video_and_audio() -> None:
     assert selection.selector == "137+140"
     assert selection.requires_ffmpeg is True
     assert selection.estimated_filesize == 4_608
+
+
+def test_select_mp4_formats_prefers_direct_https_over_fragmented_stream() -> None:
+    info = split_info()
+    info["formats"].insert(
+        0,
+        {
+            "format_id": "311",
+            "ext": "mp4",
+            "protocol": "m3u8_native",
+            "height": 1080,
+            "vcodec": "avc1.640028",
+            "acodec": "none",
+            "tbr": 8_000,
+        },
+    )
+    info["formats"][1]["protocol"] = "https"
+
+    selection = select_mp4_formats(info["formats"], 1080)
+
+    assert selection.selector == "137+140"
 
 
 def test_select_mp4_formats_rejects_unavailable_quality() -> None:

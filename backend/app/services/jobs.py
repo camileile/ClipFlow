@@ -412,15 +412,19 @@ def process_download_job(
 
     last_emit_at = float("-inf")
     last_state: tuple[str, str] | None = None
+    last_progress: float | None = None
 
     def publish(update: DownloadProgress) -> None:
-        nonlocal last_emit_at, last_state
+        nonlocal last_emit_at, last_progress, last_state
         now = monotonic()
         state = (update.status, update.stage)
-        important = state != last_state or update.progress == 100.0
+        important = state != last_state or (
+            update.progress == 100.0 and last_progress != 100.0
+        )
         if important or now - last_emit_at >= DOWNLOAD_PROGRESS_THROTTLE_SECONDS:
             manager.update_progress(job_id, update)
             last_emit_at = now
+            last_progress = update.progress
             last_state = state
 
     try:
