@@ -28,5 +28,7 @@ npm run start      # execução do build
 
 O fluxo de análise depende da API FastAPI disponível em
 `NEXT_PUBLIC_API_URL`. A interface mostra mensagens amigáveis quando o backend
-está indisponível e renderiza os metadados reais normalizados pela API. O botão
-de download permanece desativado nesta etapa.
+está indisponível e renderiza os metadados reais normalizados pela API. Após a
+análise, uma qualidade real pode ser escolhida e o botão baixa a resposta MP4
+binária usando o nome sugerido pelo backend. MP3 permanece visível como recurso
+futuro.

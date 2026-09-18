@@ -12,8 +12,8 @@ LOCAL_FRONTEND_ORIGINS = [
 
 app = FastAPI(
     title="ClipFlow API",
-    description="YouTube metadata analysis API for ClipFlow.",
-    version="0.2.0",
+    description="YouTube metadata analysis and MP4 download API for ClipFlow.",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -22,6 +22,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(router)

@@ -1,8 +1,8 @@
 # ClipFlow API
 
-API FastAPI responsável por validar URLs públicas do YouTube e extrair
-metadados reais com `yt-dlp`. A análise usa `download=False`: nenhum arquivo de
-mídia é baixado ou convertido.
+API FastAPI responsável por validar URLs públicas do YouTube, extrair metadados
+reais e preparar downloads MP4 com `yt-dlp`. A análise usa `download=False`; o
+download ocorre somente pelo endpoint dedicado e usa diretórios temporários.
 
 ## Desenvolvimento
 
@@ -20,7 +20,20 @@ uvicorn app.main:app --reload
 
 O serviço usa `yt-dlp[default]`, incluindo `yt-dlp-ejs`, e habilita Node.js como
 runtime dos desafios JavaScript do YouTube. Use Node.js 22 ou superior e deixe o
-executável `node` disponível no `PATH`. FFmpeg não é necessário.
+executável `node` disponível no `PATH`.
+
+Downloads com vídeo e áudio separados exigem os executáveis `ffmpeg` e
+`ffprobe`. No Windows:
+
+```powershell
+winget install --id Gyan.FFmpeg --exact
+ffmpeg -version
+ffprobe -version
+```
+
+A API aplica limite de 30 minutos e 750 MiB, não aceita caminhos ou seletores
+de formato enviados pelo cliente e remove os arquivos temporários após a
+resposta.
 
 A API fica disponível em `http://localhost:8000` e sua documentação interativa
 em `http://localhost:8000/docs`.
@@ -31,4 +44,5 @@ em `http://localhost:8000/docs`.
 python -m pytest
 ```
 
-Os testes usam mocks e não fazem requisições reais ao YouTube.
+Os testes usam mocks e não fazem requisições reais ao YouTube nem downloads de
+mídia.

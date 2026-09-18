@@ -30,3 +30,13 @@ export interface AnalyzeResponse {
   platform: MediaPlatform;
   media: MediaInfo;
 }
+
+export interface DownloadRequest {
+  url: string;
+  format: "mp4";
+  quality: number;
+}
+
+export interface DownloadResult {
+  filename: string;
+}

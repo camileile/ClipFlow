@@ -2,12 +2,12 @@
 
 **Baixe. Converta. Simples assim.**
 
-O ClipFlow é a fundação de uma aplicação web para análise, download e conversão
-de mídias. A aplicação já consulta metadados reais de vídeos públicos do
-YouTube e apresenta título, canal, duração, thumbnail e qualidades disponíveis.
+O ClipFlow é uma aplicação web para análise, download e futura conversão de
+mídias. A aplicação consulta metadados reais de vídeos públicos do YouTube,
+apresenta as qualidades disponíveis e permite baixar vídeos em MP4.
 
-> **Status atual:** a análise é real, mas nenhum arquivo é baixado ou convertido.
-> MP3, FFmpeg e as demais plataformas continuam fora do escopo.
+> **Status atual:** análise e download MP4 são reais. A conversão MP3 e as
+> demais plataformas continuam fora do escopo.
 
 ## Parte 2 — análise real do YouTube
 
@@ -21,6 +21,24 @@ são reduzidos a opções representativas e as resoluções são deduplicadas e
 ordenadas. Erros de vídeo privado, removido, indisponível ou falha externa são
 convertidos em respostas HTTP amigáveis, sem expor detalhes internos.
 
+## Parte 3 — downloads MP4
+
+O endpoint `POST /api/download` revalida a URL, consulta novamente os formatos
+do vídeo e exige uma resolução realmente disponível. O seletor é construído
+internamente: o navegador nunca envia IDs de formato, argumentos do FFmpeg,
+nomes de arquivo ou caminhos do servidor.
+
+Quando o YouTube oferece vídeo e áudio juntos em um MP4 compatível, esse
+arquivo pode ser entregue diretamente. Quando os streams estão separados, o
+`yt-dlp` usa FFmpeg para fazer merge/remux em um único MP4, sem recodificação
+pesada. Cada requisição usa um diretório temporário próprio, removido depois que
+a resposta termina ou imediatamente se ocorrer um erro.
+
+Os limites iniciais são 30 minutos de duração e 750 MiB por arquivo. O limite
+de tamanho é aplicado quando a estimativa está disponível e também é informado
+ao `yt-dlp`. Vídeos com duração desconhecida não são iniciados, pois não é
+possível comprovar que estão dentro do limite.
+
 ## Arquitetura
 
 ```text
@@ -33,7 +51,8 @@ clipflow/
 ├── backend/                  # FastAPI, Uvicorn e Pydantic
 │   ├── app/api/              # Rotas HTTP
 │   ├── app/schemas/          # Contratos de entrada e saída
-│   ├── app/services/         # Validação e extração com yt-dlp
+│   ├── app/services/         # Análise, download e detecção do FFmpeg
+│   ├── app/config.py         # Limites centralizados do download
 │   ├── app/main.py           # Aplicação e configuração de CORS
 │   └── tests/                # Testes de endpoints e normalização
 ├── .gitignore
@@ -46,9 +65,10 @@ isolada em `src/lib/api.ts`, com respostas verificadas em tempo de execução e
 tipadas em `src/types/media.ts`.
 
 O backend mantém as rotas responsáveis apenas pelo protocolo HTTP. A validação
-de domínio, integração com `yt-dlp`, normalização e classificação de erros ficam
-no serviço YouTube. O CORS aceita apenas as origens locais esperadas nas portas
-`3000` e `3001`.
+de domínio e a extração de metadados ficam no serviço YouTube; seleção de
+streams, limites, nome seguro e ciclo dos arquivos temporários ficam no serviço
+de download. O CORS aceita apenas as origens locais esperadas nas portas `3000`
+e `3001` e expõe somente o cabeçalho necessário para o nome do arquivo.
 
 ## Tecnologias
 
@@ -63,12 +83,14 @@ no serviço YouTube. O CORS aceita apenas as origens locais esperadas nas portas
 - yt-dlp 2026.8.19
 - yt-dlp-ejs 0.8.0
 - Pytest 9
+- FFmpeg 9 ou versão compatível, necessário quando vídeo e áudio estão separados
 
 ## Requisitos
 
 - Node.js 22 ou superior
 - npm 10 ou superior
 - Python 3.11 ou superior
+- FFmpeg e FFprobe disponíveis no `PATH` para downloads que exigem merge
 
 As versões usadas durante o desenvolvimento foram Node.js `24.13.1`, npm
 `11.8.0` e Python `3.13.14`.
@@ -131,8 +153,27 @@ Para instalar somente as dependências de execução, use
 
 O extra `yt-dlp[default]` instala os scripts `yt-dlp-ejs` usados nos desafios
 atuais do YouTube. O serviço habilita o Node.js como runtime JavaScript; por
-isso, o executável `node` precisa estar disponível no `PATH`. FFmpeg não é
-necessário nesta etapa.
+isso, o executável `node` precisa estar disponível no `PATH`.
+
+### FFmpeg no Windows
+
+O backend não instala FFmpeg automaticamente. No Windows, uma opção é o pacote
+mantido por Gyan Doshi e distribuído pelo `winget`:
+
+```powershell
+winget install --id Gyan.FFmpeg --exact
+```
+
+Feche e abra o terminal depois da instalação. Confirme os dois executáveis:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+Se a qualidade escolhida já possuir vídeo e áudio em um único MP4, o download
+pode não precisar do FFmpeg. Para streams separados, ambos os executáveis são
+obrigatórios e a API retorna uma mensagem controlada quando não os encontra.
 
 ## Variáveis de ambiente
 
@@ -226,6 +267,23 @@ O array `formats` contém apenas representações controladas pelo ClipFlow, nã
 resposta bruta do extrator. O conteúdo exato varia conforme o vídeo e a
 disponibilidade informada pelo YouTube.
 
+### `POST /api/download`
+
+Recebe somente URL, formato MP4 e resolução exata:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  "format": "mp4",
+  "quality": 240
+}
+```
+
+Em caso de sucesso, responde com o arquivo binário usando `Content-Type:
+video/mp4` e `Content-Disposition: attachment`. O nome é derivado do título,
+sanitizado no backend e limitado a um tamanho seguro. MP3 é rejeitado pelo
+contrato desta etapa.
+
 ## Validações
 
 Frontend:
@@ -244,10 +302,10 @@ cd backend
 python -m pytest
 ```
 
-Os testes não acessam o YouTube. A camada de extração é substituída por mocks e
-a suíte cobre health check, contrato de sucesso, URL inválida, domínio não
-suportado, vídeo indisponível, erro inesperado, campos ausentes, normalização de
-qualidades e a garantia de `download=False`.
+Os testes não acessam o YouTube. A camada de extração e download é substituída
+por mocks. A suíte cobre os cenários anteriores e também seleção exata de
+qualidade, streams combinados e separados, ausência do FFmpeg, limites, nome
+seguro, headers binários e limpeza dos arquivos temporários.
 
 ## Escopo desta fase
 
@@ -259,22 +317,24 @@ Implementado:
 - card de prévia e controles visuais de formato e qualidade;
 - indicação das plataformas planejadas;
 - API FastAPI com health check e análise real de metadados;
+- download MP4 real com resolução validada novamente no backend;
+- merge/remux de vídeo e áudio separados usando FFmpeg quando necessário;
+- entrega binária com nome seguro e limpeza posterior do diretório temporário;
 - validação restrita a hosts do YouTube e timeout/retries limitados;
 - integração frontend/backend via variável de ambiente;
 - testes determinísticos da API e do serviço YouTube.
 
 Ainda não implementado:
 
-- download ou conversão de mídia;
-- FFmpeg, conversão MP3 ou progresso de download;
+- conversão MP3;
+- progresso percentual, cancelamento ou processamento persistente em background;
 - autenticação, banco de dados, filas ou armazenamento;
 - Instagram, TikTok ou X/Twitter;
 - Docker, pagamentos ou analytics.
 
 ## Próximos passos sugeridos
 
-1. Definir regras de uso e requisitos funcionais para downloads reais.
-2. Implementar download MP4 preservando os limites de segurança atuais.
-3. Adicionar conversão MP3 somente quando o uso de FFmpeg for planejado.
-4. Projetar acompanhamento de progresso sem bloquear requisições HTTP.
-5. Expandir plataformas somente após estabilizar o fluxo do YouTube.
+1. Adicionar progresso real e cancelamento em uma etapa própria.
+2. Projetar conversão MP3 e escolha de bitrate.
+3. Avaliar processamento assíncrono antes de cargas maiores.
+4. Expandir plataformas somente após estabilizar o fluxo do YouTube.
