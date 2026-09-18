@@ -1,4 +1,4 @@
-export type MediaPlatform = "youtube";
+export type MediaPlatform = "youtube" | "tiktok";
 
 export type MediaFormat = "mp4" | "mp3";
 
@@ -66,6 +66,7 @@ export interface DownloadJobCreated {
 
 export interface DownloadJobState {
   job_id: string;
+  platform: MediaPlatform;
   status: DownloadJobStatus;
   stage: string;
   progress: number | null;

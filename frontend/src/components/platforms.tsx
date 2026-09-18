@@ -2,11 +2,11 @@ const platforms = [
   {
     name: "YouTube",
     shortName: "YT",
-    status: "Primeira plataforma",
+    status: "Disponível",
     featured: true,
   },
   { name: "Instagram", shortName: "IG", status: "Em breve", featured: false },
-  { name: "TikTok", shortName: "TK", status: "Em breve", featured: false },
+  { name: "TikTok", shortName: "TK", status: "Disponível", featured: true },
   { name: "X", shortName: "X", status: "Em breve", featured: false },
 ];
 

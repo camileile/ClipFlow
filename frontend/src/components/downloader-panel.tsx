@@ -28,6 +28,7 @@ import type {
   DownloadRequest,
   MediaFormat,
   MediaInfo,
+  MediaPlatform,
   MediaQuality,
 } from "@/types/media";
 
@@ -75,6 +76,7 @@ export function DownloaderPanel() {
   const [url, setUrl] = useState("");
   const [requestState, setRequestState] = useState<RequestState>(INITIAL_STATE);
   const [preview, setPreview] = useState<MediaInfo | null>(null);
+  const [previewPlatform, setPreviewPlatform] = useState<MediaPlatform | null>(null);
   const [format, setFormat] = useState<MediaFormat>("mp4");
   const [quality, setQuality] = useState<MediaQuality>("best");
   const [audioQuality, setAudioQuality] = useState<AudioQuality>(192);
@@ -103,12 +105,13 @@ export function DownloaderPanel() {
       setRequestState({
         status: "error",
         message:
-          "Use um endereço completo, como https://www.youtube.com/watch?v=...",
+          "Use um endereço completo do YouTube ou TikTok.",
       });
       return;
     }
 
     setPreview(null);
+    setPreviewPlatform(null);
     setQuality("best");
     setRequestState({
       status: "analyzing",
@@ -118,6 +121,7 @@ export function DownloaderPanel() {
     try {
       const result = await analyzeMedia(normalizedUrl);
       setPreview(result.media);
+      setPreviewPlatform(result.platform);
       setRequestState({
         status: "ready",
         message: "Vídeo analisado. Escolha o formato e a qualidade do arquivo.",
@@ -227,6 +231,7 @@ export function DownloaderPanel() {
       const created = await createDownloadJob(request);
       const queuedJob: DownloadJobState = {
         job_id: created.job_id,
+        platform: previewPlatform ?? "youtube",
         status: "queued",
         stage: "Preparing",
         progress: null,
@@ -350,6 +355,7 @@ export function DownloaderPanel() {
   const activityDetails = activeState
     ? [
         ["Job", `${activeState.job.job_id.slice(0, 8)}…`],
+        ["Plataforma", activeState.job.platform === "tiktok" ? "TikTok" : "YouTube"],
         ["Formato", format.toUpperCase()],
         [
           "Qualidade",
@@ -398,12 +404,13 @@ export function DownloaderPanel() {
                       setUrl(event.target.value);
                       if (preview !== null) {
                         setPreview(null);
+                        setPreviewPlatform(null);
                         setQuality("best");
                         setAudioQuality(192);
                       }
                       setRequestState(INITIAL_STATE);
                     }}
-                    placeholder="https://www.youtube.com/watch?v=..."
+                    placeholder="Cole um link do YouTube ou TikTok..."
                     aria-describedby="url-feedback"
                     aria-invalid={requestState.status === "error" && preview === null}
                     className="retro-inset h-10 min-w-0 flex-1 px-3 text-sm outline-none placeholder:text-placeholder disabled:cursor-not-allowed disabled:opacity-65"
@@ -447,7 +454,7 @@ export function DownloaderPanel() {
                     <p id="url-feedback" className={`min-w-0 text-[13px] leading-5 ${messageColor}`}>
                       <strong className="mr-1 text-foreground">{feedbackTitle}:</strong>
                       {requestState.message ||
-                        "Insira um link público do YouTube para ler as informações da mídia."}
+                        "Insira um link público do YouTube ou TikTok para ler as informações da mídia."}
                     </p>
                   </div>
                 </div>
@@ -466,6 +473,7 @@ export function DownloaderPanel() {
 
           <MediaPreview
             data={preview}
+            platform={previewPlatform}
             format={format}
             quality={quality}
             audioQuality={audioQuality}
@@ -563,14 +571,14 @@ export function DownloaderPanel() {
                 </div>
               </div>
               <p className="mt-5 text-sm leading-6">
-                Uma ferramenta direta para analisar vídeos públicos do YouTube e
+                Uma ferramenta direta para analisar vídeos públicos do YouTube e TikTok e
                 preparar arquivos MP4 ou MP3 com progresso real, velocidade, ETA
                 e cancelamento.
               </p>
               <dl className="mt-5 grid gap-2 text-[13px] sm:grid-cols-2">
                 <div className="border border-line bg-surface-elevated p-3">
                   <dt className="font-bold">Plataforma</dt>
-                  <dd className="mt-1 text-muted">YouTube</dd>
+                  <dd className="mt-1 text-muted">YouTube e TikTok</dd>
                 </div>
                 <div className="border border-line bg-surface-elevated p-3">
                   <dt className="font-bold">Formatos</dt>

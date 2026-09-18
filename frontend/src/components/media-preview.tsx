@@ -12,11 +12,13 @@ import {
   type AudioQuality,
   type MediaFormat,
   type MediaInfo,
+  type MediaPlatform,
   type MediaQuality,
 } from "@/types/media";
 
 interface MediaPreviewProps {
   data: MediaInfo | null;
+  platform: MediaPlatform | null;
   format: MediaFormat;
   quality: MediaQuality;
   audioQuality: AudioQuality;
@@ -39,6 +41,7 @@ const formatOptions: Array<{
 
 export function MediaPreview({
   data,
+  platform,
   format,
   quality,
   audioQuality,
@@ -57,6 +60,12 @@ export function MediaPreview({
     : (data?.author ?? (data ? "Canal não informado" : "—"));
   const duration = data ? formatDuration(data.duration) : "00:00";
   const isBusy = isLoading || isDownloading;
+  const platformLabel =
+    platform === "tiktok"
+      ? "TikTok"
+      : platform === "youtube"
+        ? "YouTube"
+        : "Aguardando";
   const hasAudio = data?.formats.some((item) => item.type === "audio") ?? false;
   const canDownload = Boolean(
     data &&
@@ -110,7 +119,7 @@ export function MediaPreview({
             </div>
             <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2">
               <span className="border border-white/50 bg-black/75 px-2 py-1 text-[11px] font-bold text-white">
-                ● YouTube
+                ● {platformLabel}
               </span>
               <span className="border border-white/50 bg-black/75 px-2 py-1 font-mono text-[11px] text-white">
                 {duration}
@@ -137,7 +146,7 @@ export function MediaPreview({
               <dt className="font-bold text-muted">Origem:</dt>
               <dd className="flex items-center gap-2">
                 <span className="status-led status-led-success" aria-hidden="true" />
-                YouTube
+                {platformLabel}
               </dd>
             </div>
           </dl>

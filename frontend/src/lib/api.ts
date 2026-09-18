@@ -47,7 +47,7 @@ function isAnalyzeResponse(value: unknown): value is AnalyzeResponse {
 
   return (
     candidate.success === true &&
-    candidate.platform === "youtube" &&
+    (candidate.platform === "youtube" || candidate.platform === "tiktok") &&
     isMediaInfo(candidate.media)
   );
 }
@@ -116,6 +116,7 @@ function isDownloadJobState(value: unknown): value is DownloadJobState {
   const candidate = value as Record<string, unknown>;
   return (
     typeof candidate.job_id === "string" &&
+    (candidate.platform === "youtube" || candidate.platform === "tiktok") &&
     typeof candidate.status === "string" &&
     DOWNLOAD_JOB_STATUSES.has(candidate.status) &&
     typeof candidate.stage === "string" &&

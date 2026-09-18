@@ -117,7 +117,7 @@ export function RetroWindow({
           />
           <span className="truncate">{statusText}</span>
         </span>
-        <span className="retro-status-cell status-secondary">YouTube conectado</span>
+        <span className="retro-status-cell status-secondary">YouTube · TikTok</span>
         <span className="retro-status-cell status-version">
           <span className="status-version-full">ClipFlow v0.6</span>
           <span className="status-version-short">v0.6</span>
