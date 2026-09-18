@@ -1,16 +1,34 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+
+from app.config import MP3Bitrate
 
 
 class AnalyzeRequest(BaseModel):
     url: HttpUrl = Field(description="Public YouTube URL to analyze")
 
 
-class DownloadRequest(BaseModel):
+class MP4DownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     url: HttpUrl = Field(description="Public YouTube URL to download")
-    format: Literal["mp4"] = Field(description="Output format supported in this phase")
+    format: Literal["mp4"]
     quality: int = Field(ge=1, le=4320, description="Exact video height in pixels")
+
+
+class MP3DownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: HttpUrl = Field(description="Public YouTube URL to download")
+    format: Literal["mp3"]
+    audio_quality: MP3Bitrate = Field(description="Target MP3 bitrate in kbps")
+
+
+DownloadRequest = Annotated[
+    MP4DownloadRequest | MP3DownloadRequest,
+    Field(discriminator="format"),
+]
 
 
 class MediaFormat(BaseModel):

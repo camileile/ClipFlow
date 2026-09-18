@@ -29,6 +29,7 @@ npm run start      # execução do build
 O fluxo de análise depende da API FastAPI disponível em
 `NEXT_PUBLIC_API_URL`. A interface mostra mensagens amigáveis quando o backend
 está indisponível e renderiza os metadados reais normalizados pela API. Após a
-análise, uma qualidade real pode ser escolhida e o botão baixa a resposta MP4
-binária usando o nome sugerido pelo backend. MP3 permanece visível como recurso
-futuro.
+análise, o usuário pode escolher uma resolução MP4 ou um bitrate MP3. O mesmo
+cliente recebe as duas respostas binárias, valida o tipo esperado e usa o nome
+sugerido pelo backend. A interface informa que o bitrate MP3 é uma configuração
+de conversão, não um aumento da qualidade original.

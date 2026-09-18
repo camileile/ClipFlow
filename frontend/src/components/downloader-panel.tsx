@@ -5,7 +5,13 @@ import { useState, type FormEvent } from "react";
 import { ArrowRightIcon, LinkIcon } from "@/components/icons";
 import { MediaPreview } from "@/components/media-preview";
 import { analyzeMedia, ApiRequestError, downloadMedia } from "@/lib/api";
-import type { MediaFormat, MediaInfo, MediaQuality } from "@/types/media";
+import type {
+  AudioQuality,
+  DownloadRequest,
+  MediaFormat,
+  MediaInfo,
+  MediaQuality,
+} from "@/types/media";
 
 type RequestStatus =
   | "idle"
@@ -31,6 +37,7 @@ export function DownloaderPanel() {
   const [preview, setPreview] = useState<MediaInfo | null>(null);
   const [format, setFormat] = useState<MediaFormat>("mp4");
   const [quality, setQuality] = useState<MediaQuality>("best");
+  const [audioQuality, setAudioQuality] = useState<AudioQuality>(192);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,7 +66,7 @@ export function DownloaderPanel() {
       const result = await analyzeMedia(normalizedUrl);
       setPreview(result.media);
       setStatus("ready");
-      setMessage("Vídeo analisado. Escolha a qualidade para baixar o MP4.");
+      setMessage("Vídeo analisado. Escolha o formato e a qualidade do arquivo.");
     } catch (error) {
       setStatus("error");
       setMessage(
@@ -71,33 +78,46 @@ export function DownloaderPanel() {
   }
 
   async function handleDownload() {
-    if (!preview || format !== "mp4" || status === "downloading") {
+    if (!preview || status === "downloading") {
       return;
     }
 
-    const selectedQuality =
-      quality === "best"
-        ? preview.qualities[0]
-        : Number.parseInt(quality.replace(/p$/, ""), 10);
+    let request: DownloadRequest;
 
-    if (!selectedQuality || !preview.qualities.includes(selectedQuality)) {
-      setStatus("error");
-      setMessage("Escolha uma qualidade disponível antes de baixar.");
-      return;
+    if (format === "mp4") {
+      const selectedQuality =
+        quality === "best"
+          ? preview.qualities[0]
+          : Number.parseInt(quality.replace(/p$/, ""), 10);
+
+      if (!selectedQuality || !preview.qualities.includes(selectedQuality)) {
+        setStatus("error");
+        setMessage("Escolha uma qualidade de vídeo disponível antes de baixar.");
+        return;
+      }
+
+      request = {
+        url: preview.original_url,
+        format: "mp4",
+        quality: selectedQuality,
+      };
+    } else {
+      request = {
+        url: preview.original_url,
+        format: "mp3",
+        audio_quality: audioQuality,
+      };
     }
 
     setStatus("downloading");
-    setMessage("Preparando o MP4. Esta etapa pode levar alguns minutos...");
+    setMessage(
+      format === "mp3"
+        ? "Convertendo o áudio para MP3. Isso pode levar alguns minutos..."
+        : "Preparando o MP4. Esta etapa pode levar alguns minutos...",
+    );
 
     try {
-      const result = await downloadMedia(
-        {
-          url: preview.original_url,
-          format: "mp4",
-          quality: selectedQuality,
-        },
-        preview.title,
-      );
+      const result = await downloadMedia(request, preview.title);
       setStatus("success");
       setMessage(`Download iniciado: ${result.filename}`);
     } catch (error) {
@@ -145,6 +165,7 @@ export function DownloaderPanel() {
                 if (preview !== null) {
                   setPreview(null);
                   setQuality("best");
+                  setAudioQuality(192);
                 }
                 if (status !== "idle") {
                   setStatus("idle");
@@ -188,20 +209,27 @@ export function DownloaderPanel() {
         data={preview}
         format={format}
         quality={quality}
+        audioQuality={audioQuality}
         isLoading={isAnalyzing}
         isDownloading={isDownloading}
         onDownload={handleDownload}
         onFormatChange={(nextFormat) => {
           setFormat(nextFormat);
+          if (nextFormat === "mp4") {
+            setQuality("best");
+          } else {
+            setAudioQuality(192);
+          }
           if (preview) {
             setStatus("ready");
             setMessage(
               nextFormat === "mp3"
-                ? "MP3 estará disponível em uma próxima etapa."
-                : "Escolha a qualidade para baixar o MP4.",
+                ? "Escolha o bitrate para converter e baixar o MP3."
+                : "Escolha a resolução para baixar o MP4.",
             );
           }
         }}
+        onAudioQualityChange={setAudioQuality}
         onQualityChange={setQuality}
       />
     </div>

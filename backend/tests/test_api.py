@@ -219,7 +219,7 @@ async def test_download_mp4_returns_binary_headers_and_cleans_up(
         (
             FFmpegUnavailableError(),
             503,
-            "O FFmpeg é necessário para este download, mas não está disponível no servidor.",
+            "O FFmpeg é necessário para criar este arquivo, mas não está disponível no servidor.",
         ),
         (
             VideoUnavailableError(),
@@ -303,3 +303,100 @@ async def test_download_rejects_mp3(client: AsyncClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+async def test_download_mp3_returns_binary_headers_and_cleans_up(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temporary_directory = tempfile.TemporaryDirectory(prefix="clipflow-test-")
+    temporary_root = Path(temporary_directory.name)
+    output_path = temporary_root / "media.mp3"
+    output_path.write_bytes(b"mock-mp3-content")
+
+    monkeypatch.setattr(
+        routes,
+        "download_youtube_mp3",
+        lambda _url, audio_quality: DownloadArtifact(
+            path=output_path,
+            filename="Áudio seguro.mp3",
+            _temporary_directory=temporary_directory,
+        ),
+    )
+
+    response = await client.post(
+        "/api/download",
+        json={
+            "url": "https://www.youtube.com/watch?v=video-id",
+            "format": "mp3",
+            "audio_quality": 192,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"mock-mp3-content"
+    assert response.headers["content-type"] == "audio/mpeg"
+    assert "attachment" in response.headers["content-disposition"]
+    assert "filename*=utf-8''%C3%81udio%20seguro.mp3" in response.headers[
+        "content-disposition"
+    ]
+    assert not temporary_root.exists()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "url": "https://youtu.be/video-id",
+            "format": "mp3",
+            "audio_quality": 160,
+        },
+        {"url": "https://youtu.be/video-id", "format": "mp3"},
+        {
+            "url": "https://youtu.be/video-id",
+            "format": "mp3",
+            "audio_quality": 192,
+            "quality": 720,
+        },
+        {
+            "url": "https://youtu.be/video-id",
+            "format": "mp4",
+            "quality": 720,
+            "audio_quality": 192,
+        },
+    ],
+)
+async def test_download_rejects_invalid_format_field_combinations(
+    client: AsyncClient,
+    payload: dict[str, object],
+) -> None:
+    response = await client.post(
+        "/api/download",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+
+
+async def test_download_mp3_maps_unavailable_video(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable(*_: object) -> DownloadArtifact:
+        raise VideoUnavailableError
+
+    monkeypatch.setattr(routes, "download_youtube_mp3", unavailable)
+
+    response = await client.post(
+        "/api/download",
+        json={
+            "url": "https://youtu.be/unavailable",
+            "format": "mp3",
+            "audio_quality": 128,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Este vídeo não existe ou não está disponível."
+    }

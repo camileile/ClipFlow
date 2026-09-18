@@ -4,10 +4,11 @@
 
 O ClipFlow é uma aplicação web para análise, download e futura conversão de
 mídias. A aplicação consulta metadados reais de vídeos públicos do YouTube,
-apresenta as qualidades disponíveis e permite baixar vídeos em MP4.
+apresenta as qualidades disponíveis e permite baixar vídeos em MP4 ou converter
+o áudio para MP3.
 
-> **Status atual:** análise e download MP4 são reais. A conversão MP3 e as
-> demais plataformas continuam fora do escopo.
+> **Status atual:** análise e downloads MP4/MP3 são reais. As demais plataformas
+> continuam fora do escopo.
 
 ## Parte 2 — análise real do YouTube
 
@@ -39,6 +40,22 @@ de tamanho é aplicado quando a estimativa está disponível e também é inform
 ao `yt-dlp`. Vídeos com duração desconhecida não são iniciados, pois não é
 possível comprovar que estão dentro do limite.
 
+## Parte 4 — downloads MP3
+
+O mesmo endpoint `POST /api/download` aceita agora uma requisição MP3 tipada. O
+backend escolhe somente o melhor stream de áudio disponível e usa o
+`FFmpegExtractAudio`, integrado ao `yt-dlp`, para gerar o arquivo final em 128,
+192, 256 ou 320 kbps.
+
+O bitrate representa a configuração do MP3 convertido. Ele não aumenta a
+qualidade do áudio original disponibilizado pelo YouTube. O frontend alterna
+entre resolução de vídeo e bitrate de áudio e nunca envia os dois campos na
+mesma requisição.
+
+MP4 e MP3 reutilizam validação de URL, limites, detecção de FFmpeg, diretórios
+temporários, sanitização do nome, entrega binária e limpeza posterior. MP3
+sempre exige `ffmpeg` e `ffprobe` disponíveis no `PATH`.
+
 ## Arquitetura
 
 ```text
@@ -66,9 +83,10 @@ tipadas em `src/types/media.ts`.
 
 O backend mantém as rotas responsáveis apenas pelo protocolo HTTP. A validação
 de domínio e a extração de metadados ficam no serviço YouTube; seleção de
-streams, limites, nome seguro e ciclo dos arquivos temporários ficam no serviço
-de download. O CORS aceita apenas as origens locais esperadas nas portas `3000`
-e `3001` e expõe somente o cabeçalho necessário para o nome do arquivo.
+streams de vídeo/áudio, conversão MP3, limites, nome seguro e ciclo dos arquivos
+temporários ficam no serviço de download. O CORS aceita apenas as origens locais
+esperadas nas portas `3000` e `3001` e expõe somente o cabeçalho necessário para
+o nome do arquivo.
 
 ## Tecnologias
 
@@ -267,7 +285,7 @@ O array `formats` contém apenas representações controladas pelo ClipFlow, nã
 resposta bruta do extrator. O conteúdo exato varia conforme o vídeo e a
 disponibilidade informada pelo YouTube.
 
-### `POST /api/download`
+### `POST /api/download` — MP4
 
 Recebe somente URL, formato MP4 e resolução exata:
 
@@ -281,8 +299,25 @@ Recebe somente URL, formato MP4 e resolução exata:
 
 Em caso de sucesso, responde com o arquivo binário usando `Content-Type:
 video/mp4` e `Content-Disposition: attachment`. O nome é derivado do título,
-sanitizado no backend e limitado a um tamanho seguro. MP3 é rejeitado pelo
-contrato desta etapa.
+sanitizado no backend e limitado a um tamanho seguro. O contrato MP4 aceita
+somente o campo de resolução e rejeita campos exclusivos de MP3.
+
+### `POST /api/download` — MP3
+
+Recebe URL, formato e um dos bitrates suportados:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  "format": "mp3",
+  "audio_quality": 192
+}
+```
+
+A resposta usa `Content-Type: audio/mpeg` e sugere um nome `.mp3` seguro no
+`Content-Disposition`. Valores fora de 128, 192, 256 e 320 kbps, campos
+ausentes e combinações como MP3 com resolução de vídeo são rejeitados pelo
+schema antes do processamento.
 
 ## Validações
 
@@ -303,9 +338,10 @@ python -m pytest
 ```
 
 Os testes não acessam o YouTube. A camada de extração e download é substituída
-por mocks. A suíte cobre os cenários anteriores e também seleção exata de
-qualidade, streams combinados e separados, ausência do FFmpeg, limites, nome
-seguro, headers binários e limpeza dos arquivos temporários.
+por mocks. A suíte cobre os cenários anteriores e também os quatro bitrates
+MP3, seleção exclusiva de áudio, combinações inválidas, falha de conversão,
+ausência do FFmpeg, limites, nomes seguros, headers binários e limpeza dos
+arquivos temporários.
 
 ## Escopo desta fase
 
@@ -320,13 +356,13 @@ Implementado:
 - download MP4 real com resolução validada novamente no backend;
 - merge/remux de vídeo e áudio separados usando FFmpeg quando necessário;
 - entrega binária com nome seguro e limpeza posterior do diretório temporário;
+- conversão MP3 em 128, 192, 256 ou 320 kbps usando somente o stream de áudio;
 - validação restrita a hosts do YouTube e timeout/retries limitados;
 - integração frontend/backend via variável de ambiente;
 - testes determinísticos da API e do serviço YouTube.
 
 Ainda não implementado:
 
-- conversão MP3;
 - progresso percentual, cancelamento ou processamento persistente em background;
 - autenticação, banco de dados, filas ou armazenamento;
 - Instagram, TikTok ou X/Twitter;
@@ -335,6 +371,6 @@ Ainda não implementado:
 ## Próximos passos sugeridos
 
 1. Adicionar progresso real e cancelamento em uma etapa própria.
-2. Projetar conversão MP3 e escolha de bitrate.
-3. Avaliar processamento assíncrono antes de cargas maiores.
+2. Avaliar processamento assíncrono antes de cargas maiores.
+3. Considerar metadados ID3 e capa apenas em uma etapa separada.
 4. Expandir plataformas somente após estabilizar o fluxo do YouTube.
