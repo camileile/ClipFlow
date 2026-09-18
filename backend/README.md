@@ -49,6 +49,8 @@ remove o estado. Arquivos prontos expiram após 15 minutos; falhas e cancelament
 expiram após 5 minutos. Depois da entrega, o diretório temporário é removido.
 Durante FFmpeg o progresso é indeterminado. O cancelamento impede a entrega,
 mas não encerra à força um processo FFmpeg que já tenha começado.
+Em downloads fragmentados, a interrupção pode aguardar o fragmento atual terminar
+para permitir que o `yt-dlp` feche os arquivos temporários com segurança.
 
 `POST /api/download` permanece disponível temporariamente para compatibilidade.
 

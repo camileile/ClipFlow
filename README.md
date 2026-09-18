@@ -73,6 +73,9 @@ arquivo e só então remove o diretório temporário. `DELETE
 /api/download/jobs/{job_id}` cancela jobs ativos; o hook interrompe o download
 na próxima atualização. Se o FFmpeg já estiver executando, ele pode terminar o
 processo atual, mas o job permanece cancelado e o arquivo nunca é exposto.
+Em streams fragmentados, a interrupção pode aguardar o fragmento atual terminar
+para que o `yt-dlp` libere seus arquivos com segurança; a entrega continua
+bloqueada e os temporários são removidos assim que a operação puder encerrar.
 
 Jobs prontos expiram após 15 minutos sem retirada. Jobs com falha ou cancelados
 expiram após 5 minutos. Um processo periódico leve e os próprios acessos ao
