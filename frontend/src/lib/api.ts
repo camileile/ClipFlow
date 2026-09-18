@@ -271,9 +271,26 @@ export async function downloadMedia(
       );
     }
 
+    const expectedMediaType =
+      request.format === "mp3" ? "audio/mpeg" : "video/mp4";
+    const responseMediaType = response.headers
+      .get("Content-Type")
+      ?.split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (responseMediaType && responseMediaType !== expectedMediaType) {
+      throw new ApiRequestError(
+        "unexpected",
+        "O backend retornou um formato de arquivo inesperado.",
+      );
+    }
+
+    const extension = request.format;
+    const fallbackStem =
+      fallbackTitle || (extension === "mp3" ? "clipflow-audio" : "clipflow-video");
     const fallbackFilename = safeFilename(
-      `${fallbackTitle || "clipflow-video"}.mp4`,
-      "clipflow-video.mp4",
+      `${fallbackStem}.${extension}`,
+      `clipflow-${extension === "mp3" ? "audio" : "video"}.${extension}`,
     );
     const filename = filenameFromDisposition(
       response.headers.get("Content-Disposition"),

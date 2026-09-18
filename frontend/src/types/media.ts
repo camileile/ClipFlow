@@ -4,6 +4,10 @@ export type MediaFormat = "mp4" | "mp3";
 
 export type MediaQuality = "best" | `${number}p`;
 
+export const SUPPORTED_MP3_BITRATES = [128, 192, 256, 320] as const;
+
+export type AudioQuality = (typeof SUPPORTED_MP3_BITRATES)[number];
+
 export interface AvailableMediaFormat {
   format_id: string;
   type: "video" | "audio";
@@ -31,11 +35,17 @@ export interface AnalyzeResponse {
   media: MediaInfo;
 }
 
-export interface DownloadRequest {
-  url: string;
-  format: "mp4";
-  quality: number;
-}
+export type DownloadRequest =
+  | {
+      url: string;
+      format: "mp4";
+      quality: number;
+    }
+  | {
+      url: string;
+      format: "mp3";
+      audio_quality: AudioQuality;
+    };
 
 export interface DownloadResult {
   filename: string;
