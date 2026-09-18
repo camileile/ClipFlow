@@ -33,9 +33,24 @@ ffprobe -version
 ```
 
 A API aplica limite de 30 minutos e 750 MiB, aceita MP3 apenas em 128, 192, 256
-ou 320 kbps, não recebe caminhos nem seletores internos do cliente e remove os
-arquivos temporários após a resposta. O bitrate MP3 configura a saída da
-conversão e não representa ganho sobre a qualidade original.
+ou 320 kbps e não recebe caminhos nem seletores internos do cliente. O bitrate
+MP3 configura a saída da conversão e não representa ganho sobre a qualidade
+original.
+
+## Download jobs
+
+O fluxo recomendado cria um job com `POST /api/download/jobs`, acompanha
+progresso, velocidade, ETA e estágios por SSE em
+`GET /api/download/jobs/{job_id}/events`, cancela com `DELETE` no mesmo recurso
+e retira o arquivo pronto em `GET /api/download/jobs/{job_id}/file`.
+
+Jobs são guardados somente em memória e executados em threads. Reiniciar a API
+remove o estado. Arquivos prontos expiram após 15 minutos; falhas e cancelamentos
+expiram após 5 minutos. Depois da entrega, o diretório temporário é removido.
+Durante FFmpeg o progresso é indeterminado. O cancelamento impede a entrega,
+mas não encerra à força um processo FFmpeg que já tenha começado.
+
+`POST /api/download` permanece disponível temporariamente para compatibilidade.
 
 A API fica disponível em `http://localhost:8000` e sua documentação interativa
 em `http://localhost:8000/docs`.
@@ -47,4 +62,5 @@ python -m pytest
 ```
 
 Os testes usam mocks e não fazem requisições reais ao YouTube nem downloads de
-mídia.
+mídia. A suíte inclui lifecycle, SSE, throttle, TTL, cancelamento e concorrência
+entre jobs independentes.
