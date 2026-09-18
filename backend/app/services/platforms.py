@@ -2,10 +2,11 @@ from typing import Literal, TypeAlias
 from urllib.parse import urlparse
 
 
-MediaPlatform: TypeAlias = Literal["youtube", "tiktok"]
+MediaPlatform: TypeAlias = Literal["youtube", "tiktok", "instagram"]
 
 YOUTUBE_HOSTS = {"youtube.com", "youtu.be", "youtube-nocookie.com"}
 TIKTOK_HOSTS = {"tiktok.com"}
+INSTAGRAM_HOSTS = {"instagram.com"}
 
 
 class InvalidMediaUrlError(Exception):
@@ -41,4 +42,6 @@ def detect_platform(url: str) -> MediaPlatform:
         return "youtube"
     if _matches_host(hostname, TIKTOK_HOSTS):
         return "tiktok"
+    if _matches_host(hostname, INSTAGRAM_HOSTS):
+        return "instagram"
     raise UnsupportedPlatformError

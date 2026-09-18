@@ -36,6 +36,14 @@ from app.services.jobs import (
     job_manager,
     start_download_job,
 )
+from app.services.instagram import (
+    InstagramAuthenticationRequiredError,
+    InstagramCarouselError,
+    InstagramMediaError,
+    InstagramNoVideoError,
+    InstagramRateLimitedError,
+    InstagramServiceError,
+)
 from app.services.media import analyze_media as analyze_media_url
 from app.services.youtube import (
     InvalidYouTubeUrlError,
@@ -108,12 +116,37 @@ def _raise_media_http_error(
     if isinstance(error, InvalidYouTubeUrlError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Informe uma URL válida do YouTube ou TikTok.",
+            detail="Informe uma URL válida do YouTube, TikTok ou Instagram.",
         ) from error
     if isinstance(error, UnsupportedPlatformError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Esta plataforma ainda não é suportada. Use YouTube ou TikTok.",
+            detail="Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram.",
+        ) from error
+    if isinstance(error, InstagramNoVideoError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Este post do Instagram não contém um vídeo compatível.",
+        ) from error
+    if isinstance(error, InstagramCarouselError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Carrosséis do Instagram ainda não são suportados.",
+        ) from error
+    if isinstance(error, InstagramAuthenticationRequiredError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta mídia do Instagram é privada ou exige login.",
+        ) from error
+    if isinstance(error, InstagramRateLimitedError):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="O Instagram bloqueou temporariamente a solicitação. Tente novamente mais tarde.",
+        ) from error
+    if isinstance(error, InstagramServiceError):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"O Instagram não pôde concluir {operation_name} agora. Tente novamente mais tarde.",
         ) from error
     if isinstance(error, PrivateVideoError):
         raise HTTPException(
@@ -153,6 +186,7 @@ def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
         platform, media = analyze_media_url(payload.url)
     except (
         InvalidYouTubeUrlError,
+        InstagramMediaError,
         PrivateVideoError,
         RemovedVideoError,
         UnexpectedYouTubeError,
@@ -178,7 +212,7 @@ def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
 async def create_download_job(payload: DownloadRequest) -> DownloadJobCreated:
     try:
         state = start_download_job(payload)
-    except (InvalidYouTubeUrlError, UnsupportedPlatformError) as error:
+    except (InvalidYouTubeUrlError, UnsupportedPlatformError, InstagramMediaError) as error:
         _raise_media_http_error(error, "download")
     return DownloadJobCreated(job_id=state.job_id, status="queued")
 
@@ -308,6 +342,7 @@ def download_media(payload: DownloadRequest) -> Response:
         ) from error
     except (
         InvalidYouTubeUrlError,
+        InstagramMediaError,
         PrivateVideoError,
         RemovedVideoError,
         UnexpectedYouTubeError,

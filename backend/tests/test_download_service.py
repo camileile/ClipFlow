@@ -11,6 +11,7 @@ from app.services.download import (
     DownloadProcessingError,
     DownloadLimitExceededError,
     FFmpegUnavailableError,
+    IncompatibleMediaError,
     QualityUnavailableError,
     UnsupportedBitrateError,
     download_youtube_mp3,
@@ -40,6 +41,25 @@ def tiktok_combined_info(duration: int = 18) -> dict[str, Any]:
                 "fps": 30,
                 "tbr": 1400,
                 "filesize_approx": 2_500_000,
+            }
+        ],
+    }
+
+
+def instagram_combined_info(duration: int = 12) -> dict[str, Any]:
+    return {
+        "id": "C1234567890",
+        "description": "Instagram Reel",
+        "uploader": "@clipflow",
+        "duration": duration,
+        "webpage_url": "https://www.instagram.com/reel/C1234567890/",
+        "formats": [
+            {
+                "format_id": "dash-720",
+                "ext": "mp4",
+                "height": 720,
+                "width": 1280,
+                "filesize_approx": 2_000_000,
             }
         ],
     }
@@ -216,6 +236,151 @@ def test_select_mp4_formats_prefers_direct_https_over_fragmented_stream() -> Non
 def test_select_mp4_formats_rejects_unavailable_quality() -> None:
     with pytest.raises(QualityUnavailableError):
         select_mp4_formats(progressive_info()["formats"], 1080)
+
+
+def test_select_instagram_mp4_accepts_combined_video_and_audio() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-muxed",
+                "ext": "mp4",
+                "height": 720,
+                "vcodec": "unknown-video-codec",
+                "acodec": "unknown-audio-codec",
+            }
+        ],
+        720,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-muxed"
+    assert selection.requires_ffmpeg is False
+
+
+def test_select_instagram_mp4_accepts_combined_1280p() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-1280",
+                "ext": "mp4",
+                "height": 1280,
+                "vcodec": "h264",
+                "acodec": "aac",
+            }
+        ],
+        1280,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-1280"
+
+
+def test_select_instagram_mp4_uses_requested_quality_among_multiple() -> None:
+    formats = [
+        {
+            "format_id": f"ig-{height}",
+            "ext": "mp4",
+            "height": height,
+            "vcodec": "h264",
+            "acodec": "aac",
+        }
+        for height in (720, 1080, 1280)
+    ]
+
+    assert select_mp4_formats(formats, 1080, "instagram").selector == "ig-1080"
+
+
+def test_select_instagram_mp4_best_available_uses_highest_height() -> None:
+    formats = [
+        {
+            "format_id": f"ig-{height}",
+            "ext": "mp4",
+            "height": height,
+            "vcodec": "h264",
+            "acodec": "aac",
+        }
+        for height in (720, 1280, 1080)
+    ]
+
+    assert select_mp4_formats(formats, None, "instagram").selector == "ig-1280"
+
+
+def test_select_instagram_mp4_merges_separate_mp4_and_m4a_streams() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-video",
+                "ext": "mp4",
+                "height": 1280,
+                "vcodec": "provider-specific-video",
+                "acodec": "none",
+            },
+            {
+                "format_id": "ig-audio",
+                "ext": "m4a",
+                "vcodec": "none",
+                "acodec": "provider-specific-audio",
+            },
+        ],
+        1280,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-video+ig-audio"
+    assert selection.requires_ffmpeg is True
+
+
+def test_select_instagram_mp4_rejects_absence_of_compatible_container() -> None:
+    with pytest.raises(IncompatibleMediaError):
+        select_mp4_formats(
+            [
+                {
+                    "format_id": "webm-only",
+                    "ext": "webm",
+                    "height": 1280,
+                    "vcodec": "vp9",
+                    "acodec": "opus",
+                }
+            ],
+            1280,
+            "instagram",
+        )
+
+
+def test_select_instagram_mp4_accepts_silent_video() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-silent",
+                "ext": "mp4",
+                "height": 1280,
+                "vcodec": "avc1.4d401f",
+                "acodec": "none",
+            }
+        ],
+        1280,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-silent"
+    assert selection.requires_ffmpeg is False
+
+
+def test_select_instagram_mp4_rejects_unavailable_quality() -> None:
+    with pytest.raises(QualityUnavailableError):
+        select_mp4_formats(
+            [
+                {
+                    "format_id": "ig-720",
+                    "ext": "mp4",
+                    "height": 720,
+                    "vcodec": "h264",
+                    "acodec": "aac",
+                }
+            ],
+            1280,
+            "instagram",
+        )
 
 
 def test_select_best_audio_format_ignores_video_and_prefers_best_audio() -> None:
@@ -609,3 +774,81 @@ def test_tiktok_filename_uses_platform_fallback_without_description() -> None:
     assert download._download_title({"title": None, "description": ""}, "tiktok") == (
         "clipflow-tiktok"
     )
+
+
+@pytest.mark.parametrize(
+    ("extension", "expected"),
+    [("mp4", "Instagram Reel.mp4"), ("mp3", "Instagram Reel.mp3")],
+)
+def test_download_instagram_reuses_shared_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    extension: str,
+    expected: str,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            calls["options"] = options
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extract_info(self, _: str, download: bool) -> dict[str, Any]:
+            assert download is True
+            options = calls["options"]
+            assert isinstance(options, dict)
+            output_template = options["outtmpl"]
+            assert isinstance(output_template, str)
+            Path(output_template.replace("%(ext)s", extension)).write_bytes(b"instagram")
+            return instagram_combined_info()
+
+    monkeypatch.setattr(
+        download, "extract_instagram_info", lambda _: instagram_combined_info()
+    )
+    monkeypatch.setattr(download, "YoutubeDL", FakeYoutubeDL)
+    monkeypatch.setattr(
+        download,
+        "detect_media_tools",
+        lambda: MediaTools(
+            ffmpeg="C:/tools/ffmpeg.exe",
+            ffprobe="C:/tools/ffprobe.exe",
+        ),
+    )
+
+    if extension == "mp4":
+        artifact = download.download_media_mp4(
+            "https://www.instagram.com/reel/C1234567890/", 720
+        )
+    else:
+        artifact = download.download_media_mp3(
+            "https://www.instagram.com/reel/C1234567890/", 192
+        )
+
+    temporary_root = artifact.path.parent
+    assert artifact.path.read_bytes() == b"instagram"
+    assert artifact.filename == expected
+    assert isinstance(calls["options"], dict)
+    assert calls["options"]["format"] == "dash-720"
+    if extension == "mp3":
+        assert calls["options"]["postprocessors"][0]["preferredquality"] == "192"
+    artifact.cleanup()
+    assert not temporary_root.exists()
+
+
+def test_download_instagram_applies_shared_duration_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        download,
+        "extract_instagram_info",
+        lambda _: instagram_combined_info(duration=30 * 60 + 1),
+    )
+
+    with pytest.raises(DownloadLimitExceededError):
+        download.download_media_mp4(
+            "https://www.instagram.com/reel/C1234567890/", 720
+        )

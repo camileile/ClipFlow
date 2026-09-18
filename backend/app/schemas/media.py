@@ -8,13 +8,13 @@ from app.config import MP3Bitrate
 
 
 class AnalyzeRequest(BaseModel):
-    url: HttpUrl = Field(description="Public YouTube or TikTok URL to analyze")
+    url: HttpUrl = Field(description="Public YouTube, TikTok, or Instagram URL to analyze")
 
 
 class MP4DownloadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url: HttpUrl = Field(description="Public YouTube or TikTok URL to download")
+    url: HttpUrl = Field(description="Public YouTube, TikTok, or Instagram URL to download")
     format: Literal["mp4"]
     quality: int = Field(ge=1, le=4320, description="Exact video height in pixels")
 
@@ -22,7 +22,7 @@ class MP4DownloadRequest(BaseModel):
 class MP3DownloadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url: HttpUrl = Field(description="Public YouTube or TikTok URL to download")
+    url: HttpUrl = Field(description="Public YouTube, TikTok, or Instagram URL to download")
     format: Literal["mp3"]
     audio_quality: MP3Bitrate = Field(description="Target MP3 bitrate in kbps")
 
@@ -49,7 +49,7 @@ class DownloadJobCreated(BaseModel):
 
 class DownloadJobState(BaseModel):
     job_id: UUID
-    platform: Literal["youtube", "tiktok"]
+    platform: Literal["youtube", "tiktok", "instagram"]
     status: DownloadJobStatus
     stage: str
     progress: float | None = Field(default=None, ge=0, le=100)
@@ -87,5 +87,5 @@ class MediaInfo(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     success: Literal[True]
-    platform: Literal["youtube", "tiktok"]
+    platform: Literal["youtube", "tiktok", "instagram"]
     media: MediaInfo

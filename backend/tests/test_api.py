@@ -14,6 +14,11 @@ from app.services.download import (
     FFmpegUnavailableError,
     QualityUnavailableError,
 )
+from app.services.instagram import (
+    InstagramAuthenticationRequiredError,
+    InstagramNoVideoError,
+    InstagramRateLimitedError,
+)
 from app.services.youtube import (
     UnexpectedYouTubeError,
     UnsupportedPlatformError,
@@ -140,6 +145,73 @@ async def test_analyze_tiktok_url_returns_shared_contract(
     assert response.json()["media"]["title"] == "TikTok público"
 
 
+async def test_analyze_instagram_url_returns_shared_contract(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = MediaInfo(
+        id="C1234567890",
+        title="Instagram Reel",
+        author="@clipflow",
+        duration=12,
+        thumbnail=None,
+        original_url="https://www.instagram.com/reel/C1234567890/",
+        qualities=[720],
+        formats=[],
+    )
+    monkeypatch.setattr(routes, "analyze_media_url", lambda _: ("instagram", media))
+
+    response = await client.post(
+        "/api/analyze",
+        json={"url": "https://www.instagram.com/reel/C1234567890/"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["platform"] == "instagram"
+    assert response.json()["media"]["author"] == "@clipflow"
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "detail"),
+    [
+        (
+            InstagramNoVideoError(),
+            422,
+            "Este post do Instagram não contém um vídeo compatível.",
+        ),
+        (
+            InstagramAuthenticationRequiredError(),
+            403,
+            "Esta mídia do Instagram é privada ou exige login.",
+        ),
+        (
+            InstagramRateLimitedError(),
+            429,
+            "O Instagram bloqueou temporariamente a solicitação. Tente novamente mais tarde.",
+        ),
+    ],
+)
+async def test_analyze_instagram_maps_safe_errors(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    detail: str,
+) -> None:
+    def fail(_: object) -> MediaInfo:
+        raise error
+
+    monkeypatch.setattr(routes, "analyze_media_url", fail)
+
+    response = await client.post(
+        "/api/analyze",
+        json={"url": "https://www.instagram.com/p/C1234567890/"},
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": detail}
+
+
 async def test_analyze_rejects_malformed_url(client: AsyncClient) -> None:
     response = await client.post("/api/analyze", json={"url": "not-a-url"})
 
@@ -154,7 +226,7 @@ async def test_analyze_rejects_unsupported_domain(client: AsyncClient) -> None:
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Esta plataforma ainda não é suportada. Use YouTube ou TikTok."
+        "detail": "Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram."
     }
 
 
@@ -330,7 +402,7 @@ async def test_download_rejects_unsupported_domain(
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Esta plataforma ainda não é suportada. Use YouTube ou TikTok."
+        "detail": "Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram."
     }
 
 

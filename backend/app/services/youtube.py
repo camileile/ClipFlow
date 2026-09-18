@@ -276,7 +276,11 @@ def normalize_media_info(
         title=(
             _clean_text(info.get("title"))
             or _clean_text(info.get("description"))
-            or ("Vídeo do YouTube" if platform == "youtube" else "Vídeo do TikTok")
+            or {
+                "youtube": "Vídeo do YouTube",
+                "tiktok": "Vídeo do TikTok",
+                "instagram": "Instagram video",
+            }[platform]
         ),
         author=(
             _clean_text(info.get("channel"))

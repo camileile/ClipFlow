@@ -23,6 +23,11 @@ from app.config import (
 )
 from app.schemas import MediaInfo
 from app.services.ffmpeg import detect_media_tools
+from app.services.instagram import (
+    extract_instagram_info,
+    map_instagram_download_error,
+    prepare_instagram_info,
+)
 from app.services.platforms import MediaPlatform, detect_platform
 from app.services.tiktok import extract_tiktok_info
 from app.services.youtube import (
@@ -240,17 +245,33 @@ def _valid_format_id(raw_format: Mapping[str, Any]) -> str | None:
     return value
 
 
-def select_mp4_formats(raw_formats: object, quality: int) -> FormatSelection:
+def select_mp4_formats(
+    raw_formats: object,
+    quality: int | None,
+    platform: MediaPlatform = "youtube",
+) -> FormatSelection:
     if not isinstance(raw_formats, list):
         raise QualityUnavailableError
 
-    exact_video_formats = [
+    video_formats = [
         item
         for item in raw_formats
         if isinstance(item, Mapping)
         and _has_video(item)
-        and _positive_int(item.get("height")) == quality
         and _valid_format_id(item) is not None
+        and _positive_int(item.get("height")) is not None
+    ]
+    selected_quality = quality
+    if selected_quality is None and video_formats:
+        selected_quality = max(
+            height
+            for item in video_formats
+            if (height := _positive_int(item.get("height"))) is not None
+        )
+    exact_video_formats = [
+        item
+        for item in video_formats
+        if _positive_int(item.get("height")) == selected_quality
     ]
     if not exact_video_formats:
         raise QualityUnavailableError
@@ -270,6 +291,68 @@ def select_mp4_formats(raw_formats: object, quality: int) -> FormatSelection:
             requires_ffmpeg=False,
             estimated_filesize=_format_filesize(selected),
         )
+
+    # Instagram commonly exposes either a complete MP4, separate MP4/M4A
+    # streams, or a silent MP4. Container information from the provider is
+    # sufficient here; requiring YouTube's usual codec labels rejects valid
+    # Instagram media whose codecs are missing or represented differently.
+    if platform == "instagram":
+        combined_mp4 = [
+            item
+            for item in exact_video_formats
+            if (_clean_string(item.get("ext")) or "").lower() == "mp4"
+            and _has_audio(item)
+        ]
+        if combined_mp4:
+            selected = max(combined_mp4, key=_video_score)
+            return FormatSelection(
+                selector=_valid_format_id(selected) or "",
+                requires_ffmpeg=False,
+                estimated_filesize=_format_filesize(selected),
+            )
+
+        instagram_video_only = [
+            item
+            for item in exact_video_formats
+            if not _has_audio(item)
+            and (_clean_string(item.get("ext")) or "").lower() == "mp4"
+        ]
+        instagram_audio_only = [
+            item
+            for item in raw_formats
+            if isinstance(item, Mapping)
+            and _has_audio(item)
+            and not _has_video(item)
+            and _valid_format_id(item) is not None
+            and (_clean_string(item.get("ext")) or "").lower() in {"m4a", "mp4"}
+        ]
+        if instagram_video_only and instagram_audio_only:
+            selected_video = max(instagram_video_only, key=_video_score)
+            selected_audio = max(instagram_audio_only, key=_audio_score)
+            sizes = [_format_filesize(selected_video), _format_filesize(selected_audio)]
+            return FormatSelection(
+                selector=(
+                    f"{_valid_format_id(selected_video)}+"
+                    f"{_valid_format_id(selected_audio)}"
+                ),
+                requires_ffmpeg=True,
+                estimated_filesize=(
+                    sum(size for size in sizes if size is not None)
+                    if all(size is not None for size in sizes)
+                    else None
+                ),
+            )
+
+        has_any_audio = any(
+            isinstance(item, Mapping) and _has_audio(item) for item in raw_formats
+        )
+        if instagram_video_only and not has_any_audio:
+            selected = max(instagram_video_only, key=_video_score)
+            return FormatSelection(
+                selector=_valid_format_id(selected) or "",
+                requires_ffmpeg=False,
+                estimated_filesize=_format_filesize(selected),
+            )
 
     video_only = [
         item
@@ -443,7 +526,7 @@ def _progress_hooks(
             )
             stage = (
                 "Downloading media"
-                if platform == "tiktok" and extension == "mp4"
+                if platform != "youtube" and extension == "mp4"
                 else "Downloading audio"
                 if extension == "mp3"
                 else "Downloading video"
@@ -595,10 +678,18 @@ def _run_download(
         if "clipflow download cancelled" in str(error).lower():
             raise DownloadCancelledError from error
         if _is_processing_error(error):
-            logger.warning("YouTube media post-processing failed")
+            logger.warning("%s media post-processing failed", platform)
             raise DownloadProcessingError from error
-        mapped_error = map_download_error(error)
-        logger.warning("YouTube media download failed: %s", mapped_error.__class__.__name__)
+        mapped_error = (
+            map_instagram_download_error(error)
+            if platform == "instagram"
+            else map_download_error(error)
+        )
+        logger.warning(
+            "%s media download failed: %s",
+            platform,
+            mapped_error.__class__.__name__,
+        )
         raise mapped_error from error
     except YouTubeDownloadError:
         _cleanup_temporary_directory(temporary_directory)
@@ -620,11 +711,18 @@ def _extract_download_source(
     requested_url: str,
 ) -> tuple[MediaPlatform, Mapping[str, Any], MediaInfo]:
     platform = detect_platform(requested_url)
+    extractors = {
+        "youtube": extract_youtube_info,
+        "tiktok": extract_tiktok_info,
+        "instagram": extract_instagram_info,
+    }
+    raw_info = extractors[platform](requested_url)
     if platform == "youtube":
-        raw_info = extract_youtube_info(requested_url)
         media = normalize_video_info(raw_info, requested_url)
+    elif platform == "instagram":
+        raw_info = prepare_instagram_info(raw_info, requested_url)
+        media = normalize_media_info(raw_info, requested_url, platform="instagram")
     else:
-        raw_info = extract_tiktok_info(requested_url)
         media = normalize_media_info(raw_info, requested_url, platform="tiktok")
     return platform, raw_info, media
 
@@ -632,7 +730,12 @@ def _extract_download_source(
 def _download_title(
     raw_info: Mapping[str, Any],
     platform: MediaPlatform,
+    extension: Literal["mp3", "mp4"] = "mp4",
+    normalized_title: str = "",
 ) -> str:
+    if platform == "instagram":
+        fallback = "instagram-audio" if extension == "mp3" else "instagram-video"
+        return _clean_string(normalized_title) or fallback
     return (
         _clean_string(raw_info.get("title"))
         or _clean_string(raw_info.get("description"))
@@ -653,7 +756,7 @@ def download_youtube_mp4(
     platform, raw_info, media = _extract_download_source(requested_url)
     if is_cancelled is not None and is_cancelled():
         raise DownloadCancelledError
-    selection = select_mp4_formats(raw_info.get("formats"), quality)
+    selection = select_mp4_formats(raw_info.get("formats"), quality, platform)
     _ensure_within_limits(media.duration, selection.estimated_filesize)
 
     if selection.requires_ffmpeg and not detect_media_tools().available:
@@ -661,7 +764,7 @@ def download_youtube_mp4(
 
     return _run_download(
         requested_url=requested_url,
-        title=_download_title(raw_info, platform),
+        title=_download_title(raw_info, platform, "mp4", media.title),
         video_id=media.id,
         options_factory=lambda temporary_path: _mp4_download_options(
             temporary_path, selection
@@ -708,7 +811,7 @@ def download_youtube_mp3(
 
     return _run_download(
         requested_url=requested_url,
-        title=_download_title(raw_info, platform),
+        title=_download_title(raw_info, platform, "mp3", media.title),
         video_id=media.id,
         options_factory=lambda temporary_path: _mp3_download_options(
             temporary_path, selection, audio_quality

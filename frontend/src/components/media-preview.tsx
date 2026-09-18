@@ -61,11 +61,13 @@ export function MediaPreview({
   const duration = data ? formatDuration(data.duration) : "00:00";
   const isBusy = isLoading || isDownloading;
   const platformLabel =
-    platform === "tiktok"
-      ? "TikTok"
-      : platform === "youtube"
-        ? "YouTube"
-        : "Aguardando";
+    platform === "instagram"
+      ? "Instagram"
+      : platform === "tiktok"
+        ? "TikTok"
+        : platform === "youtube"
+          ? "YouTube"
+          : "Aguardando";
   const hasAudio = data?.formats.some((item) => item.type === "audio") ?? false;
   const canDownload = Boolean(
     data &&
