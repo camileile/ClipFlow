@@ -11,6 +11,7 @@ from app.services.download import (
     DownloadProcessingError,
     DownloadLimitExceededError,
     FFmpegUnavailableError,
+    IncompatibleMediaError,
     QualityUnavailableError,
     UnsupportedBitrateError,
     download_youtube_mp3,
@@ -235,6 +236,151 @@ def test_select_mp4_formats_prefers_direct_https_over_fragmented_stream() -> Non
 def test_select_mp4_formats_rejects_unavailable_quality() -> None:
     with pytest.raises(QualityUnavailableError):
         select_mp4_formats(progressive_info()["formats"], 1080)
+
+
+def test_select_instagram_mp4_accepts_combined_video_and_audio() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-muxed",
+                "ext": "mp4",
+                "height": 720,
+                "vcodec": "unknown-video-codec",
+                "acodec": "unknown-audio-codec",
+            }
+        ],
+        720,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-muxed"
+    assert selection.requires_ffmpeg is False
+
+
+def test_select_instagram_mp4_accepts_combined_1280p() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-1280",
+                "ext": "mp4",
+                "height": 1280,
+                "vcodec": "h264",
+                "acodec": "aac",
+            }
+        ],
+        1280,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-1280"
+
+
+def test_select_instagram_mp4_uses_requested_quality_among_multiple() -> None:
+    formats = [
+        {
+            "format_id": f"ig-{height}",
+            "ext": "mp4",
+            "height": height,
+            "vcodec": "h264",
+            "acodec": "aac",
+        }
+        for height in (720, 1080, 1280)
+    ]
+
+    assert select_mp4_formats(formats, 1080, "instagram").selector == "ig-1080"
+
+
+def test_select_instagram_mp4_best_available_uses_highest_height() -> None:
+    formats = [
+        {
+            "format_id": f"ig-{height}",
+            "ext": "mp4",
+            "height": height,
+            "vcodec": "h264",
+            "acodec": "aac",
+        }
+        for height in (720, 1280, 1080)
+    ]
+
+    assert select_mp4_formats(formats, None, "instagram").selector == "ig-1280"
+
+
+def test_select_instagram_mp4_merges_separate_mp4_and_m4a_streams() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-video",
+                "ext": "mp4",
+                "height": 1280,
+                "vcodec": "provider-specific-video",
+                "acodec": "none",
+            },
+            {
+                "format_id": "ig-audio",
+                "ext": "m4a",
+                "vcodec": "none",
+                "acodec": "provider-specific-audio",
+            },
+        ],
+        1280,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-video+ig-audio"
+    assert selection.requires_ffmpeg is True
+
+
+def test_select_instagram_mp4_rejects_absence_of_compatible_container() -> None:
+    with pytest.raises(IncompatibleMediaError):
+        select_mp4_formats(
+            [
+                {
+                    "format_id": "webm-only",
+                    "ext": "webm",
+                    "height": 1280,
+                    "vcodec": "vp9",
+                    "acodec": "opus",
+                }
+            ],
+            1280,
+            "instagram",
+        )
+
+
+def test_select_instagram_mp4_accepts_silent_video() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "ig-silent",
+                "ext": "mp4",
+                "height": 1280,
+                "vcodec": "avc1.4d401f",
+                "acodec": "none",
+            }
+        ],
+        1280,
+        "instagram",
+    )
+
+    assert selection.selector == "ig-silent"
+    assert selection.requires_ffmpeg is False
+
+
+def test_select_instagram_mp4_rejects_unavailable_quality() -> None:
+    with pytest.raises(QualityUnavailableError):
+        select_mp4_formats(
+            [
+                {
+                    "format_id": "ig-720",
+                    "ext": "mp4",
+                    "height": 720,
+                    "vcodec": "h264",
+                    "acodec": "aac",
+                }
+            ],
+            1280,
+            "instagram",
+        )
 
 
 def test_select_best_audio_format_ignores_video_and_prefers_best_audio() -> None:

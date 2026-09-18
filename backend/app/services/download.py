@@ -247,19 +247,31 @@ def _valid_format_id(raw_format: Mapping[str, Any]) -> str | None:
 
 def select_mp4_formats(
     raw_formats: object,
-    quality: int,
+    quality: int | None,
     platform: MediaPlatform = "youtube",
 ) -> FormatSelection:
     if not isinstance(raw_formats, list):
         raise QualityUnavailableError
 
-    exact_video_formats = [
+    video_formats = [
         item
         for item in raw_formats
         if isinstance(item, Mapping)
         and _has_video(item)
-        and _positive_int(item.get("height")) == quality
         and _valid_format_id(item) is not None
+        and _positive_int(item.get("height")) is not None
+    ]
+    selected_quality = quality
+    if selected_quality is None and video_formats:
+        selected_quality = max(
+            height
+            for item in video_formats
+            if (height := _positive_int(item.get("height"))) is not None
+        )
+    exact_video_formats = [
+        item
+        for item in video_formats
+        if _positive_int(item.get("height")) == selected_quality
     ]
     if not exact_video_formats:
         raise QualityUnavailableError
@@ -280,8 +292,10 @@ def select_mp4_formats(
             estimated_filesize=_format_filesize(selected),
         )
 
-    # Instagram's extractor may expose a complete MP4 without declaring its
-    # codecs. It is still preferable to use that combined source unchanged.
+    # Instagram commonly exposes either a complete MP4, separate MP4/M4A
+    # streams, or a silent MP4. Container information from the provider is
+    # sufficient here; requiring YouTube's usual codec labels rejects valid
+    # Instagram media whose codecs are missing or represented differently.
     if platform == "instagram":
         combined_mp4 = [
             item
@@ -291,6 +305,49 @@ def select_mp4_formats(
         ]
         if combined_mp4:
             selected = max(combined_mp4, key=_video_score)
+            return FormatSelection(
+                selector=_valid_format_id(selected) or "",
+                requires_ffmpeg=False,
+                estimated_filesize=_format_filesize(selected),
+            )
+
+        instagram_video_only = [
+            item
+            for item in exact_video_formats
+            if not _has_audio(item)
+            and (_clean_string(item.get("ext")) or "").lower() == "mp4"
+        ]
+        instagram_audio_only = [
+            item
+            for item in raw_formats
+            if isinstance(item, Mapping)
+            and _has_audio(item)
+            and not _has_video(item)
+            and _valid_format_id(item) is not None
+            and (_clean_string(item.get("ext")) or "").lower() in {"m4a", "mp4"}
+        ]
+        if instagram_video_only and instagram_audio_only:
+            selected_video = max(instagram_video_only, key=_video_score)
+            selected_audio = max(instagram_audio_only, key=_audio_score)
+            sizes = [_format_filesize(selected_video), _format_filesize(selected_audio)]
+            return FormatSelection(
+                selector=(
+                    f"{_valid_format_id(selected_video)}+"
+                    f"{_valid_format_id(selected_audio)}"
+                ),
+                requires_ffmpeg=True,
+                estimated_filesize=(
+                    sum(size for size in sizes if size is not None)
+                    if all(size is not None for size in sizes)
+                    else None
+                ),
+            )
+
+        has_any_audio = any(
+            isinstance(item, Mapping) and _has_audio(item) for item in raw_formats
+        )
+        if instagram_video_only and not has_any_audio:
+            selected = max(instagram_video_only, key=_video_score)
             return FormatSelection(
                 selector=_valid_format_id(selected) or "",
                 requires_ffmpeg=False,
