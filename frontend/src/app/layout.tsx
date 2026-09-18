@@ -13,7 +13,7 @@ const themeInitializer = `
 export const metadata: Metadata = {
   title: "ClipFlow Media Utility",
   description:
-    "Utilitário retrô para analisar e preparar mídias públicas do YouTube e TikTok em MP4 ou MP3.",
+    "Utilitário retrô para analisar e preparar mídias públicas do YouTube, TikTok e Instagram em MP4 ou MP3.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

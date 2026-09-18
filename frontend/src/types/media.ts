@@ -1,4 +1,4 @@
-export type MediaPlatform = "youtube" | "tiktok";
+export type MediaPlatform = "youtube" | "tiktok" | "instagram";
 
 export type MediaFormat = "mp4" | "mp3";
 
