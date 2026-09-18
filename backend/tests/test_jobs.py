@@ -175,6 +175,31 @@ def test_tiktok_progress_uses_generic_media_stage() -> None:
     assert updates[0].progress == 50.0
 
 
+def test_instagram_progress_uses_generic_media_stage() -> None:
+    updates: list[DownloadProgress] = []
+    hooks, _ = _progress_hooks(
+        FormatSelection("dash-720", requires_ffmpeg=False, estimated_filesize=100),
+        "mp4",
+        updates.append,
+        lambda: False,
+        platform="instagram",
+    )
+    hooks[0](
+        {
+            "status": "downloading",
+            "downloaded_bytes": 25,
+            "total_bytes": 100,
+            "speed": 50,
+            "eta": 2,
+            "info_dict": {"format_id": "dash-720"},
+        }
+    )
+
+    assert updates[0].stage == "Downloading media"
+    assert updates[0].progress == 25.0
+    assert updates[0].eta == 2
+
+
 def test_worker_throttles_repeated_progress_updates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -252,6 +277,30 @@ def test_tiktok_job_uses_shared_worker_and_keeps_platform_metadata(
     assert result.status == "ready"
     assert result.platform == "tiktok"
     assert seen == {"url": "https://vm.tiktok.com/ZMshort/", "quality": 720}
+    manager.complete_file_delivery(state.job_id)
+
+
+def test_instagram_job_uses_shared_worker_and_keeps_platform_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = JobManager()
+    state = manager.create("instagram")
+    artifact = make_artifact()
+    monkeypatch.setattr(jobs, "download_youtube_mp4", lambda *_args, **_kwargs: artifact)
+
+    jobs.process_download_job(
+        manager,
+        state.job_id,
+        MP4DownloadRequest(
+            url="https://www.instagram.com/reel/C1234567890/",
+            format="mp4",
+            quality=720,
+        ),
+    )
+
+    result = manager.get(state.job_id)
+    assert result.status == "ready"
+    assert result.platform == "instagram"
     manager.complete_file_delivery(state.job_id)
 
 

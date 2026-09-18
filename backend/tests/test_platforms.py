@@ -34,7 +34,19 @@ def test_detect_platform_recognizes_tiktok_and_short_links(url: str) -> None:
 @pytest.mark.parametrize(
     "url",
     [
+        "https://www.instagram.com/reel/ABC123/",
+        "https://instagram.com/p/ABC123/",
+    ],
+)
+def test_detect_platform_recognizes_instagram_video_urls(url: str) -> None:
+    assert detect_platform(url) == "instagram"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
         "https://tiktok.com.example.org/@creator/video/123",
+        "https://instagram.com.evil.example/reel/ABC123/",
         "https://example.com/video/123",
     ],
 )

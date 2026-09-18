@@ -45,6 +45,25 @@ def tiktok_combined_info(duration: int = 18) -> dict[str, Any]:
     }
 
 
+def instagram_combined_info(duration: int = 12) -> dict[str, Any]:
+    return {
+        "id": "C1234567890",
+        "description": "Instagram Reel",
+        "uploader": "@clipflow",
+        "duration": duration,
+        "webpage_url": "https://www.instagram.com/reel/C1234567890/",
+        "formats": [
+            {
+                "format_id": "dash-720",
+                "ext": "mp4",
+                "height": 720,
+                "width": 1280,
+                "filesize_approx": 2_000_000,
+            }
+        ],
+    }
+
+
 def test_temporary_cleanup_retries_windows_file_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -609,3 +628,81 @@ def test_tiktok_filename_uses_platform_fallback_without_description() -> None:
     assert download._download_title({"title": None, "description": ""}, "tiktok") == (
         "clipflow-tiktok"
     )
+
+
+@pytest.mark.parametrize(
+    ("extension", "expected"),
+    [("mp4", "Instagram Reel.mp4"), ("mp3", "Instagram Reel.mp3")],
+)
+def test_download_instagram_reuses_shared_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    extension: str,
+    expected: str,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            calls["options"] = options
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extract_info(self, _: str, download: bool) -> dict[str, Any]:
+            assert download is True
+            options = calls["options"]
+            assert isinstance(options, dict)
+            output_template = options["outtmpl"]
+            assert isinstance(output_template, str)
+            Path(output_template.replace("%(ext)s", extension)).write_bytes(b"instagram")
+            return instagram_combined_info()
+
+    monkeypatch.setattr(
+        download, "extract_instagram_info", lambda _: instagram_combined_info()
+    )
+    monkeypatch.setattr(download, "YoutubeDL", FakeYoutubeDL)
+    monkeypatch.setattr(
+        download,
+        "detect_media_tools",
+        lambda: MediaTools(
+            ffmpeg="C:/tools/ffmpeg.exe",
+            ffprobe="C:/tools/ffprobe.exe",
+        ),
+    )
+
+    if extension == "mp4":
+        artifact = download.download_media_mp4(
+            "https://www.instagram.com/reel/C1234567890/", 720
+        )
+    else:
+        artifact = download.download_media_mp3(
+            "https://www.instagram.com/reel/C1234567890/", 192
+        )
+
+    temporary_root = artifact.path.parent
+    assert artifact.path.read_bytes() == b"instagram"
+    assert artifact.filename == expected
+    assert isinstance(calls["options"], dict)
+    assert calls["options"]["format"] == "dash-720"
+    if extension == "mp3":
+        assert calls["options"]["postprocessors"][0]["preferredquality"] == "192"
+    artifact.cleanup()
+    assert not temporary_root.exists()
+
+
+def test_download_instagram_applies_shared_duration_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        download,
+        "extract_instagram_info",
+        lambda _: instagram_combined_info(duration=30 * 60 + 1),
+    )
+
+    with pytest.raises(DownloadLimitExceededError):
+        download.download_media_mp4(
+            "https://www.instagram.com/reel/C1234567890/", 720
+        )
