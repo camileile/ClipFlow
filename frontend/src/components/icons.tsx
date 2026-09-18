@@ -19,6 +19,15 @@ export function ArrowRightIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function ClipFlowIcon(props: IconProps) {
+  return (
+    <svg {...iconDefaults} {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 6v9m0 0 3-3m-3 3-3-3M7 18h10" />
+    </svg>
+  );
+}
 export function CheckIcon(props: IconProps) {
   return (
     <svg {...iconDefaults} {...props}>

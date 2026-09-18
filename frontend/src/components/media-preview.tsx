@@ -50,13 +50,12 @@ export function MediaPreview({
   onQualityChange,
 }: MediaPreviewProps) {
   const title = isLoading
-    ? "Consultando o YouTube..."
-    : (data?.title ?? "Seu vídeo aparecerá aqui");
+    ? "Lendo informações..."
+    : (data?.title ?? "Nenhuma mídia carregada");
   const author = isLoading
-    ? "Isso pode levar alguns segundos"
-    : (data?.author ?? (data ? "Canal não informado" : "Canal"));
+    ? "Aguarde alguns segundos"
+    : (data?.author ?? (data ? "Canal não informado" : "—"));
   const duration = data ? formatDuration(data.duration) : "00:00";
-  const platform = data || isLoading ? "YouTube" : "Prévia";
   const isBusy = isLoading || isDownloading;
   const hasAudio = data?.formats.some((item) => item.type === "audio") ?? false;
   const canDownload = Boolean(
@@ -67,90 +66,97 @@ export function MediaPreview({
 
   return (
     <section
-      className="relative overflow-hidden rounded-[1.4rem] border border-line bg-surface-elevated p-4 sm:p-5"
+      className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(270px,0.75fr)]"
       aria-label="Prévia da mídia"
       aria-busy={isBusy}
     >
-      {isBusy && (
-        <div className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-accent-soft">
-          <div className="loading-bar h-full w-1/3 bg-accent" />
-        </div>
-      )}
-
-      <div className="grid gap-5 md:grid-cols-[1.05fr_1fr] md:gap-6">
-        <div className="group relative aspect-video overflow-hidden rounded-2xl border border-line bg-preview">
-          {data?.thumbnail ? (
-            <>
+      <div className="retro-group min-w-0">
+        <h2 className="retro-group-title">
+          <VideoIcon className="size-4 text-accent-strong" />
+          Informações da mídia
+          <span className="ml-auto flex items-center gap-1.5 font-normal text-[11px] text-muted">
+            <span
+              className={`status-led ${data ? "status-led-success" : isLoading ? "status-led-busy" : ""}`}
+              aria-hidden="true"
+            />
+            {data ? "Mídia pronta" : isLoading ? "Consultando" : "Aguardando"}
+          </span>
+        </h2>
+        <div className="retro-group-body grid gap-3 sm:grid-cols-[minmax(220px,1.05fr)_minmax(190px,0.95fr)]">
+          <div className="retro-inset relative aspect-video min-w-0 overflow-hidden bg-preview">
+            {data?.thumbnail ? (
               <Image
                 src={data.thumbnail}
                 alt={`Miniatura de ${data.title}`}
                 fill
-                sizes="(max-width: 767px) 100vw, 50vw"
+                sizes="(max-width: 639px) 100vw, (max-width: 1023px) 55vw, 38vw"
                 className="object-cover"
               />
-              <div className="absolute inset-0 [background:linear-gradient(to_top,rgb(2_6_23/0.65),transparent_58%)]" />
-            </>
-          ) : (
-            <div
-              className={`absolute inset-0 opacity-60 [background-image:linear-gradient(to_right,var(--grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-line)_1px,transparent_1px)] [background-size:28px_28px] ${
-                isLoading ? "animate-pulse" : ""
-              }`}
-            />
-          )}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="grid size-16 place-items-center rounded-full border border-white/15 bg-slate-950/80 text-white shadow-xl backdrop-blur-sm transition duration-300 group-hover:scale-105">
-              {data ? (
-                <PlayIcon className="ml-0.5 size-7" />
-              ) : (
-                <VideoIcon className="size-7" />
-              )}
-            </div>
-          </div>
-          <div className="absolute inset-x-3 bottom-3 flex items-center justify-between">
-            <span className="rounded-full border border-white/10 bg-slate-950/75 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
-              {platform}
-            </span>
-            <span className="rounded-md bg-slate-950/80 px-2 py-1 font-mono text-[11px] font-medium text-white">
-              {duration}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex min-w-0 flex-col">
-          <div className="mb-5">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-accent">
-              {data && (
-                <span className="grid size-4 place-items-center rounded-full bg-success text-white">
-                  <CheckIcon className="size-3" />
+            ) : (
+              <div
+                className={`absolute inset-0 opacity-75 [background-image:linear-gradient(to_right,var(--grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-line)_1px,transparent_1px)] [background-size:18px_18px] ${isLoading ? "animate-pulse" : ""}`}
+              />
+            )}
+            <div className="absolute inset-0 grid place-items-center">
+              {!data && (
+                <span className="grid size-14 place-items-center border border-white/45 bg-black/45 text-white shadow-md">
+                  {isLoading ? (
+                    <span className="size-6 animate-pulse border-2 border-white bg-white/20" />
+                  ) : (
+                    <VideoIcon className="size-7" />
+                  )}
                 </span>
               )}
-              {isDownloading
-                ? `Preparando seu ${format.toUpperCase()}`
-                : data
-                  ? "Análise concluída"
-                  : isLoading
-                    ? "Analisando vídeo"
-                    : "Aguardando seu link"}
             </div>
-            <h2 className="truncate text-lg font-semibold tracking-[-0.02em] text-foreground sm:text-xl">
-              {title}
-            </h2>
-            <p className="mt-1 text-sm text-muted">{author}</p>
+            <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2">
+              <span className="border border-white/50 bg-black/75 px-2 py-1 text-[11px] font-bold text-white">
+                ● YouTube
+              </span>
+              <span className="border border-white/50 bg-black/75 px-2 py-1 font-mono text-[11px] text-white">
+                {duration}
+              </span>
+            </div>
           </div>
 
-          <fieldset className="mb-4">
-            <legend className="mb-2 text-xs font-semibold text-foreground">
-              Formato
-            </legend>
+          <dl className="retro-inset min-w-0 text-[13px]">
+            <div className="border-b border-line p-2.5">
+              <dt className="mb-1 font-bold text-muted">Título:</dt>
+              <dd className="line-clamp-3 font-semibold leading-5 text-foreground">
+                {title}
+              </dd>
+            </div>
+            <div className="grid grid-cols-[72px_1fr] border-b border-line p-2.5">
+              <dt className="font-bold text-muted">Canal:</dt>
+              <dd className="min-w-0 truncate">{author}</dd>
+            </div>
+            <div className="grid grid-cols-[72px_1fr] border-b border-line p-2.5">
+              <dt className="font-bold text-muted">Duração:</dt>
+              <dd className="font-mono">{duration}</dd>
+            </div>
+            <div className="grid grid-cols-[72px_1fr] p-2.5">
+              <dt className="font-bold text-muted">Origem:</dt>
+              <dd className="flex items-center gap-2">
+                <span className="status-led status-led-success" aria-hidden="true" />
+                YouTube
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      <div className="retro-group min-w-0">
+        <h2 className="retro-group-title">
+          <DownloadIcon className="size-4 text-accent-strong" />
+          Saída
+        </h2>
+        <div className="retro-group-body flex h-[calc(100%-32px)] flex-col">
+          <fieldset>
+            <legend className="mb-2 text-[13px] font-bold">Formato:</legend>
             <div className="grid grid-cols-2 gap-2">
               {formatOptions.map((option) => (
                 <label
                   key={option.value}
-                  className={`cursor-pointer rounded-xl border px-3 py-2.5 transition focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
-                    format === option.value
-                      ? "border-accent bg-accent-soft text-accent-strong"
-                      : "border-line bg-surface text-muted hover:border-accent/35 hover:text-foreground"
-                  }`}
+                  className={`retro-button flex min-h-12 cursor-pointer items-center gap-2 px-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${format === option.value ? "retro-button-pressed bg-accent-soft!" : ""}`}
                 >
                   <input
                     type="radio"
@@ -159,11 +165,11 @@ export function MediaPreview({
                     checked={format === option.value}
                     disabled={isBusy}
                     onChange={() => onFormatChange(option.value)}
-                    className="sr-only disabled:cursor-not-allowed"
+                    className="size-4 accent-[var(--accent)]"
                   />
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{option.label}</span>
-                    <span className="text-[11px] opacity-70">
+                  <span>
+                    <span className="block font-bold">{option.label}</span>
+                    <span className="block text-[11px] font-normal text-muted">
                       {option.description}
                     </span>
                   </span>
@@ -172,40 +178,37 @@ export function MediaPreview({
             </div>
           </fieldset>
 
+          <div className="my-3 h-px bg-line shadow-[0_1px_0_var(--line-light)]" />
+
           {format === "mp4" ? (
-            <label className="mb-4 block text-xs font-semibold text-foreground">
-              <span className="mb-2 block">Qualidade do vídeo</span>
+            <label className="block text-[13px] font-bold">
+              <span className="mb-1.5 block">Qualidade do vídeo:</span>
               <select
                 value={quality}
                 disabled={!data || isBusy}
                 onChange={(event) =>
                   onQualityChange(event.target.value as MediaQuality)
                 }
-                className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground outline-none transition hover:border-accent/35 focus:border-accent focus:ring-3 focus:ring-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
+                className="retro-inset h-10 w-full px-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <option value="best">Melhor qualidade</option>
+                <option value="best">Melhor qualidade disponível</option>
                 {data?.qualities.map((availableQuality) => (
-                  <option
-                    key={availableQuality}
-                    value={`${availableQuality}p`}
-                  >
+                  <option key={availableQuality} value={`${availableQuality}p`}>
                     {availableQuality}p
                   </option>
                 ))}
               </select>
             </label>
           ) : (
-            <label className="mb-4 block text-xs font-semibold text-foreground">
-              <span className="mb-2 block">Qualidade do áudio</span>
+            <label className="block text-[13px] font-bold">
+              <span className="mb-1.5 block">Qualidade do áudio:</span>
               <select
                 value={audioQuality}
                 disabled={!data || isBusy}
                 onChange={(event) =>
-                  onAudioQualityChange(
-                    Number(event.target.value) as AudioQuality,
-                  )
+                  onAudioQualityChange(Number(event.target.value) as AudioQuality)
                 }
-                className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground outline-none transition hover:border-accent/35 focus:border-accent focus:ring-3 focus:ring-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
+                className="retro-inset h-10 w-full px-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {SUPPORTED_MP3_BITRATES.map((bitrate) => (
                   <option key={bitrate} value={bitrate}>
@@ -214,8 +217,7 @@ export function MediaPreview({
                 ))}
               </select>
               <span className="mt-2 block text-[11px] font-normal leading-4 text-muted">
-                O bitrate define a conversão do MP3 e não aumenta a qualidade
-                do áudio original.
+                O bitrate define a conversão; ele não aumenta a qualidade da fonte.
               </span>
             </label>
           )}
@@ -224,20 +226,25 @@ export function MediaPreview({
             type="button"
             disabled={!canDownload}
             onClick={onDownload}
-            className="mt-auto flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-accent text-sm font-semibold text-white shadow-accent transition hover:-translate-y-0.5 hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:translate-y-0 disabled:border disabled:border-line disabled:bg-disabled disabled:text-disabled-text disabled:shadow-none"
+            className="retro-button retro-button-primary mt-auto flex h-11 w-full items-center justify-center gap-2 px-4"
           >
             {isDownloading ? (
               <>
-                <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                <span className="size-3 animate-pulse border border-white bg-white/35" />
                 {format === "mp3" ? "Preparando MP3..." : "Preparando MP4..."}
               </>
             ) : (
               <>
-                <DownloadIcon className="size-4" />
+                {data ? <DownloadIcon className="size-4" /> : <PlayIcon className="size-4" />}
                 {format === "mp3" ? "Baixar MP3" : "Baixar MP4"}
               </>
             )}
           </button>
+
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
+            {data && <CheckIcon className="size-3 text-success-strong" />}
+            {data ? "Configuração válida para esta mídia." : "Analise uma mídia para habilitar."}
+          </p>
         </div>
       </div>
     </section>

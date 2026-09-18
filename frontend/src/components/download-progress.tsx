@@ -1,3 +1,4 @@
+import { DownloadIcon } from "@/components/icons";
 import { formatBytes, formatEta, formatSpeed } from "@/lib/format-transfer";
 import type { DownloadJobState } from "@/types/media";
 
@@ -15,6 +16,7 @@ const stageLabels: Record<string, string> = {
   "Finalizing download": "Finalizando arquivo",
   "Merging video and audio": "Unindo vídeo e áudio",
   "Converting to MP3": "Convertendo para MP3",
+  "Transferindo arquivo pronto": "Enviando arquivo ao navegador",
 };
 
 export function DownloadProgress({
@@ -29,68 +31,96 @@ export function DownloadProgress({
   const total = formatBytes(job.total_bytes);
   const speed = formatSpeed(job.speed);
   const eta = formatEta(job.eta);
-  const details = [
-    downloaded && total ? `${downloaded} de ${total}` : downloaded,
-    speed,
-    eta ? `${eta} restantes` : null,
-  ].filter((value): value is string => Boolean(value));
 
   return (
     <section
-      className="mb-4 rounded-2xl border border-accent/25 bg-accent-soft p-4"
+      className="retro-group"
       aria-live="polite"
       aria-label="Progresso do download"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{stage}</p>
-          <p className="mt-1 text-xs text-muted">
-            {job.status === "processing"
-              ? "O FFmpeg está preparando o arquivo final."
-              : details.join(" · ") || "Aguardando dados do servidor..."}
+      <h2 className="retro-group-title">
+        <DownloadIcon className="size-4 text-accent-strong" />
+        Status do download
+        <span className="ml-auto flex items-center gap-1.5 font-normal text-[11px] text-muted">
+          <span className="status-led status-led-busy" aria-hidden="true" />
+          Job ativo
+        </span>
+      </h2>
+      <div className="retro-group-body">
+        <div className="mb-2 flex items-center justify-between gap-3 text-[13px]">
+          <p className="min-w-0 truncate">
+            <strong>Status:</strong> {stage}
           </p>
+          <strong className="shrink-0 font-mono text-accent-strong">
+            {progress === null ? "—" : `${Math.round(progress)}%`}
+          </strong>
         </div>
-        {progress !== null && (
-          <span className="shrink-0 font-mono text-sm font-semibold text-accent-strong">
-            {Math.round(progress)}%
-          </span>
-        )}
-      </div>
 
-      {progress !== null ? (
-        <div
-          className="mt-3 h-2 overflow-hidden rounded-full bg-surface"
-          role="progressbar"
-          aria-label={stage}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress)}
-        >
+        {progress !== null ? (
           <div
-            className="h-full rounded-full bg-accent transition-[width] duration-200"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      ) : (
-        <div
-          className="mt-3 h-2 overflow-hidden rounded-full bg-surface"
-          role="progressbar"
-          aria-label={`${stage}, progresso indeterminado`}
-        >
-          <div className="loading-bar h-full w-1/3 rounded-full bg-accent" />
-        </div>
-      )}
+            className="retro-progress-track"
+            role="progressbar"
+            aria-label={stage}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+          >
+            <div
+              className="retro-progress-fill"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        ) : (
+          <div
+            className="retro-progress-track"
+            role="progressbar"
+            aria-label={`${stage}, progresso indeterminado`}
+          >
+            <div className="retro-progress-fill loading-bar w-1/3" />
+          </div>
+        )}
 
-      {canCancel && (
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isCancelling}
-          className="mt-3 rounded-lg border border-line-strong bg-surface px-3 py-2 text-xs font-semibold text-foreground transition hover:border-danger hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-60"
-        >
-          {isCancelling ? "Cancelando..." : "Cancelar"}
-        </button>
-      )}
+        <dl className="mt-3 grid grid-cols-2 border border-line sm:grid-cols-4">
+          <div className="border-b border-r border-line bg-surface px-2.5 py-2 sm:border-b-0">
+            <dt className="text-[11px] font-bold text-muted">Transferido</dt>
+            <dd className="mt-0.5 truncate font-mono text-[12px]">
+              {downloaded && total ? `${downloaded} / ${total}` : downloaded ?? "—"}
+            </dd>
+          </div>
+          <div className="border-b border-line bg-surface px-2.5 py-2 sm:border-b-0 sm:border-r">
+            <dt className="text-[11px] font-bold text-muted">Velocidade</dt>
+            <dd className="mt-0.5 font-mono text-[12px]">{speed ?? "—"}</dd>
+          </div>
+          <div className="border-r border-line bg-surface px-2.5 py-2">
+            <dt className="text-[11px] font-bold text-muted">Tempo restante</dt>
+            <dd className="mt-0.5 font-mono text-[12px]">{eta ?? "—"}</dd>
+          </div>
+          <div className="bg-surface px-2.5 py-2">
+            <dt className="text-[11px] font-bold text-muted">Processamento</dt>
+            <dd className="mt-0.5 truncate font-mono text-[12px]">
+              {job.status === "processing" ? "FFmpeg" : "yt-dlp"}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-3 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+          <p className="text-[11px] leading-4 text-muted">
+            {job.status === "processing"
+              ? "Processamento local em andamento. O percentual fica indeterminado nesta etapa."
+              : "Os valores são informados diretamente pelo servidor."}
+          </p>
+          {canCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isCancelling}
+              className="retro-button retro-button-danger min-w-28 px-4"
+            >
+              {isCancelling ? "Cancelando..." : "Cancelar"}
+            </button>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

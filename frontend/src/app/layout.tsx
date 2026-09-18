@@ -1,11 +1,5 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
 
 const themeInitializer = `
   try {
@@ -17,16 +11,16 @@ const themeInitializer = `
 `;
 
 export const metadata: Metadata = {
-  title: "ClipFlow — Baixe. Converta. Simples assim.",
+  title: "ClipFlow Media Utility",
   description:
-    "Uma interface simples e moderna para preparar suas mídias no formato ideal.",
+    "Utilitário retrô para analisar e preparar mídias do YouTube em MP4 ou MP3.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="pt-BR"
-      className={`${geistSans.variable} h-full antialiased`}
+      className="h-full"
       suppressHydrationWarning
     >
       <head>
