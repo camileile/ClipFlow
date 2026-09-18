@@ -1,4 +1,6 @@
-from typing import Annotated, Literal
+from datetime import datetime
+from typing import Annotated, Literal, TypeAlias
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -29,6 +31,36 @@ DownloadRequest = Annotated[
     MP4DownloadRequest | MP3DownloadRequest,
     Field(discriminator="format"),
 ]
+
+DownloadJobStatus: TypeAlias = Literal[
+    "queued",
+    "downloading",
+    "processing",
+    "ready",
+    "failed",
+    "cancelled",
+]
+
+
+class DownloadJobCreated(BaseModel):
+    job_id: UUID
+    status: Literal["queued"]
+
+
+class DownloadJobState(BaseModel):
+    job_id: UUID
+    status: DownloadJobStatus
+    stage: str
+    progress: float | None = Field(default=None, ge=0, le=100)
+    downloaded_bytes: int | None = Field(default=None, ge=0)
+    total_bytes: int | None = Field(default=None, ge=0)
+    speed: float | None = Field(default=None, ge=0)
+    eta: int | None = Field(default=None, ge=0)
+    filename: str | None = None
+    mime_type: Literal["video/mp4", "audio/mpeg"] | None = None
+    error: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
 
 
 class MediaFormat(BaseModel):
