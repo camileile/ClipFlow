@@ -22,7 +22,6 @@ import {
   downloadJobFile,
   subscribeToDownloadJob,
 } from "@/lib/api";
-import { formatBytes, formatEta, formatSpeed } from "@/lib/format-transfer";
 import type {
   AudioQuality,
   DownloadJobState,
@@ -327,9 +326,30 @@ export function DownloaderPanel() {
           ? "busy"
           : "default";
 
+  const feedbackTitle =
+    requestState.status === "error"
+      ? "Erro"
+      : requestState.status === "cancelled"
+        ? "Cancelado"
+        : requestState.status === "completed"
+          ? "Concluído"
+          : requestState.status === "ready"
+            ? "Pronto"
+            : requestState.status === "analyzing"
+              ? "Analisando"
+              : "Informação";
+  const feedbackSymbol =
+    requestState.status === "error"
+      ? "!"
+      : requestState.status === "cancelled"
+        ? "×"
+        : ["ready", "completed"].includes(requestState.status)
+          ? "✓"
+          : "i";
+
   const activityDetails = activeState
     ? [
-        ["Status", activeState.job.stage],
+        ["Job", `${activeState.job.job_id.slice(0, 8)}…`],
         ["Formato", format.toUpperCase()],
         [
           "Qualidade",
@@ -339,15 +359,7 @@ export function DownloaderPanel() {
               : quality
             : `${audioQuality} kbps`,
         ],
-        [
-          "Progresso",
-          activeState.job.progress === null
-            ? "Indeterminado"
-            : `${Math.round(activeState.job.progress)}%`,
-        ],
-        ["Transferido", formatBytes(activeState.job.downloaded_bytes) ?? "—"],
-        ["Velocidade", formatSpeed(activeState.job.speed) ?? "—"],
-        ["Tempo restante", formatEta(activeState.job.eta) ?? "—"],
+        ["Arquivo", activeState.job.filename ?? "Em preparação"],
       ]
     : [];
 
@@ -417,7 +429,7 @@ export function DownloaderPanel() {
                   </button>
                 </div>
                 <div
-                  className={`retro-alert mt-3 min-h-9 px-3 py-2 ${
+                  className={`retro-alert mt-2.5 min-h-9 px-2.5 py-2 ${
                     requestState.status === "error"
                       ? "retro-alert-danger"
                       : requestState.status === "cancelled"
@@ -428,13 +440,16 @@ export function DownloaderPanel() {
                   }`}
                   aria-live="polite"
                 >
-                  <p id="url-feedback" className={`text-[13px] leading-5 ${messageColor}`}>
-                    {requestState.status === "error" && (
-                      <strong className="mr-1 text-danger">Atenção:</strong>
-                    )}
-                    {requestState.message ||
-                      "Insira um link público do YouTube para ler as informações da mídia."}
-                  </p>
+                  <div className="flex items-start gap-2">
+                    <span className="retro-alert-icon" aria-hidden="true">
+                      {feedbackSymbol}
+                    </span>
+                    <p id="url-feedback" className={`min-w-0 text-[13px] leading-5 ${messageColor}`}>
+                      <strong className="mr-1 text-foreground">{feedbackTitle}:</strong>
+                      {requestState.message ||
+                        "Insira um link público do YouTube para ler as informações da mídia."}
+                    </p>
+                  </div>
                 </div>
               </form>
             </div>
@@ -485,7 +500,7 @@ export function DownloaderPanel() {
           <h2 id="activity-title" className="retro-group-title">
             Atividade atual
           </h2>
-          <div className="retro-group-body min-h-[470px]">
+          <div className="retro-group-body min-h-[340px] sm:min-h-[470px]">
             {activeState ? (
               <div className="space-y-3">
                 <DownloadProgress
@@ -534,7 +549,7 @@ export function DownloaderPanel() {
           <h2 id="about-title" className="retro-group-title">
             Sobre o ClipFlow
           </h2>
-          <div className="retro-group-body min-h-[470px]">
+          <div className="retro-group-body min-h-[340px] sm:min-h-[470px]">
             <div className="retro-inset mx-auto max-w-2xl p-5 sm:p-7">
               <div className="flex items-start gap-4 border-b border-line pb-5">
                 <span className="retro-app-icon size-12">

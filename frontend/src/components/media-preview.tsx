@@ -189,7 +189,7 @@ export function MediaPreview({
                 onChange={(event) =>
                   onQualityChange(event.target.value as MediaQuality)
                 }
-                className="retro-inset h-10 w-full px-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="retro-inset h-10 min-w-0 w-full overflow-hidden text-ellipsis px-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="best">Melhor qualidade disponível</option>
                 {data?.qualities.map((availableQuality) => (
@@ -208,7 +208,7 @@ export function MediaPreview({
                 onChange={(event) =>
                   onAudioQualityChange(Number(event.target.value) as AudioQuality)
                 }
-                className="retro-inset h-10 w-full px-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="retro-inset h-10 min-w-0 w-full overflow-hidden text-ellipsis px-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {SUPPORTED_MP3_BITRATES.map((bitrate) => (
                   <option key={bitrate} value={bitrate}>

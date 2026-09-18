@@ -52,7 +52,8 @@ export function RetroWindow({
             <ClipFlowIcon className="size-4" />
           </span>
           <h1 className="truncate text-sm font-bold text-white [text-shadow:1px_1px_0_rgb(0_38_104/0.8)] sm:text-[15px]">
-            ClipFlow Media Utility
+            <span>ClipFlow</span>
+            <span className="titlebar-detail"> Media Utility</span>
           </h1>
         </div>
         <div className="retro-window-controls" aria-hidden="true">
@@ -116,8 +117,11 @@ export function RetroWindow({
           />
           <span className="truncate">{statusText}</span>
         </span>
-        <span className="retro-status-cell hidden sm:flex">YouTube conectado</span>
-        <span className="retro-status-cell">ClipFlow v0.6</span>
+        <span className="retro-status-cell status-secondary">YouTube conectado</span>
+        <span className="retro-status-cell status-version">
+          <span className="status-version-full">ClipFlow v0.6</span>
+          <span className="status-version-short">v0.6</span>
+        </span>
         <span className="retro-resize-grip" aria-hidden="true" />
       </div>
     </section>
