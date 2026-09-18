@@ -82,6 +82,16 @@ expiram após 5 minutos. Um processo periódico leve e os próprios acessos ao
 manager executam a limpeza. Os jobs não são persistidos: reiniciar o backend
 remove todo o estado e recarregar o frontend perde a referência do job atual.
 
+## Interface
+
+O ClipFlow usa uma interface autoral inspirada em utilitários desktop e software
+da internet do início dos anos 2000. A janela principal reúne downloader,
+atividade atual e informações do aplicativo em uma linguagem retrô adaptada para
+desktop, tablet e celular, com modo diurno e um “retro night mode”.
+
+A referência é exclusivamente estética. O projeto não utiliza assets, marcas ou
+interfaces proprietárias da Microsoft ou do Windows.
+
 ## Arquitetura
 
 ```text
