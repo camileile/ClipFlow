@@ -41,6 +41,7 @@ yarn-error.log*
 backend/downloads/
 backend/temp/
 backend/**/*.mp4
+backend/**/*.mp3
 backend/**/*.webm
 backend/**/*.m4a
 *.part
