@@ -28,6 +28,7 @@ from app.services.download import (
     download_youtube_mp3,
     download_youtube_mp4,
 )
+from app.services.platforms import MediaPlatform, detect_platform
 from app.services.youtube import (
     InvalidYouTubeUrlError,
     PrivateVideoError,
@@ -76,6 +77,7 @@ class JobFileAlreadyClaimedError(Exception):
 @dataclass
 class DownloadJob:
     id: UUID
+    platform: MediaPlatform
     status: JobStatus
     stage: str
     created_at: datetime
@@ -118,11 +120,12 @@ class JobManager:
         self._jobs: dict[UUID, DownloadJob] = {}
         self._condition = threading.Condition(threading.RLock())
 
-    def create(self) -> DownloadJobState:
+    def create(self, platform: MediaPlatform = "youtube") -> DownloadJobState:
         self.cleanup_expired()
         with self._condition:
             job = DownloadJob(
                 id=uuid4(),
+                platform=platform,
                 status=JobStatus.QUEUED,
                 stage="Preparing",
                 created_at=self._clock(),
@@ -345,6 +348,7 @@ class JobManager:
     def _state(job: DownloadJob) -> DownloadJobState:
         return DownloadJobState(
             job_id=job.id,
+            platform=job.platform,
             status=job.status.value,
             stage=job.stage,
             progress=job.progress,
@@ -386,9 +390,9 @@ def _friendly_error(error: Exception, media_format: str) -> str:
             else "O arquivo MP4 não pôde ser preparado. Tente outra qualidade."
         )
     if isinstance(error, InvalidYouTubeUrlError):
-        return "Informe uma URL válida de um vídeo do YouTube."
+        return "Informe uma URL válida do YouTube ou TikTok."
     if isinstance(error, UnsupportedPlatformError):
-        return "Esta plataforma ainda não é suportada. Use um link do YouTube."
+        return "Esta plataforma ainda não é suportada. Use YouTube ou TikTok."
     if isinstance(error, PrivateVideoError):
         return "Este vídeo é privado e não pode ser baixado."
     if isinstance(error, RemovedVideoError):
@@ -396,7 +400,7 @@ def _friendly_error(error: Exception, media_format: str) -> str:
     if isinstance(error, VideoUnavailableError):
         return "Este vídeo não existe ou não está disponível."
     if isinstance(error, YouTubeServiceError):
-        return "O YouTube não pôde concluir o download agora. Tente novamente mais tarde."
+        return "A plataforma não pôde concluir o download agora. Tente novamente mais tarde."
     return "Não foi possível concluir o download devido a um erro inesperado."
 
 
@@ -464,7 +468,7 @@ _worker_tasks: set[asyncio.Task[None]] = set()
 
 
 def start_download_job(request: DownloadRequest) -> DownloadJobState:
-    state = job_manager.create()
+    state = job_manager.create(detect_platform(str(request.url)))
     task = asyncio.create_task(
         asyncio.to_thread(process_download_job, job_manager, state.job_id, request)
     )

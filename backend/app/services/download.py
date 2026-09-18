@@ -21,12 +21,16 @@ from app.config import (
     MAX_FILENAME_STEM_LENGTH,
     SUPPORTED_MP3_BITRATES,
 )
+from app.schemas import MediaInfo
 from app.services.ffmpeg import detect_media_tools
+from app.services.platforms import MediaPlatform, detect_platform
+from app.services.tiktok import extract_tiktok_info
 from app.services.youtube import (
     UnexpectedYouTubeError,
     YouTubeServiceError,
     extract_youtube_info,
     map_download_error,
+    normalize_media_info,
     normalize_video_info,
 )
 
@@ -308,18 +312,20 @@ def select_best_audio_format(raw_formats: object) -> FormatSelection:
     if not isinstance(raw_formats, list):
         raise IncompatibleMediaError
 
-    audio_only = [
+    audio_formats = [
         item
         for item in raw_formats
         if isinstance(item, Mapping)
         and _has_audio(item)
-        and not _has_video(item)
         and _valid_format_id(item) is not None
     ]
-    if not audio_only:
+    if not audio_formats:
         raise IncompatibleMediaError
 
-    selected = max(audio_only, key=_source_audio_score)
+    selected = max(
+        audio_formats,
+        key=lambda item: (not _has_video(item), *_source_audio_score(item)),
+    )
     return FormatSelection(
         selector=_valid_format_id(selected) or "",
         requires_ffmpeg=True,
@@ -386,6 +392,7 @@ def _progress_hooks(
     extension: str,
     on_progress: ProgressCallback | None,
     is_cancelled: CancellationCheck | None,
+    platform: MediaPlatform = "youtube",
 ) -> tuple[list[Callable[[dict[str, Any]], None]], list[Callable[[dict[str, Any]], None]]]:
     if on_progress is None and is_cancelled is None:
         return [], []
@@ -434,8 +441,19 @@ def _progress_hooks(
                 if isinstance(current_format, Mapping)
                 else None
             )
-            stage = "Downloading audio" if extension == "mp3" else "Downloading video"
-            if extension == "mp4" and len(selected_ids) > 1 and format_id == selected_ids[-1]:
+            stage = (
+                "Downloading media"
+                if platform == "tiktok" and extension == "mp4"
+                else "Downloading audio"
+                if extension == "mp3"
+                else "Downloading video"
+            )
+            if (
+                platform == "youtube"
+                and extension == "mp4"
+                and len(selected_ids) > 1
+                and format_id == selected_ids[-1]
+            ):
                 stage = "Downloading audio"
 
             if on_progress is not None:
@@ -524,6 +542,7 @@ def _run_download(
     extension: str,
     log_context: dict[str, object],
     selection: FormatSelection,
+    platform: MediaPlatform,
     on_progress: ProgressCallback | None = None,
     is_cancelled: CancellationCheck | None = None,
 ) -> DownloadArtifact:
@@ -535,13 +554,15 @@ def _run_download(
         extension,
         on_progress,
         is_cancelled,
+        platform,
     )
     if progress_hooks:
         options["progress_hooks"] = progress_hooks
     if postprocessor_hooks:
         options["postprocessor_hooks"] = postprocessor_hooks
     logger.info(
-        "Starting YouTube %s download",
+        "Starting %s %s download",
+        platform,
         extension.upper(),
         extra={"video_id": video_id, **log_context},
     )
@@ -559,7 +580,8 @@ def _run_download(
             raise DownloadProcessingError
 
         logger.info(
-            "YouTube %s download completed",
+            "%s %s download completed",
+            platform,
             extension.upper(),
             extra={"video_id": video_id, **log_context},
         )
@@ -587,8 +609,35 @@ def _run_download(
         raise DownloadProcessingError from error
     except Exception as error:
         _cleanup_temporary_directory(temporary_directory)
-        logger.exception("Unexpected YouTube media download failure")
+        logger.exception(
+            "Unexpected media download failure",
+            extra={"platform": platform},
+        )
         raise UnexpectedYouTubeError from error
+
+
+def _extract_download_source(
+    requested_url: str,
+) -> tuple[MediaPlatform, Mapping[str, Any], MediaInfo]:
+    platform = detect_platform(requested_url)
+    if platform == "youtube":
+        raw_info = extract_youtube_info(requested_url)
+        media = normalize_video_info(raw_info, requested_url)
+    else:
+        raw_info = extract_tiktok_info(requested_url)
+        media = normalize_media_info(raw_info, requested_url, platform="tiktok")
+    return platform, raw_info, media
+
+
+def _download_title(
+    raw_info: Mapping[str, Any],
+    platform: MediaPlatform,
+) -> str:
+    return (
+        _clean_string(raw_info.get("title"))
+        or _clean_string(raw_info.get("description"))
+        or f"clipflow-{platform}"
+    )
 
 
 def download_youtube_mp4(
@@ -601,10 +650,9 @@ def download_youtube_mp4(
     if is_cancelled is not None and is_cancelled():
         raise DownloadCancelledError
     requested_url = str(url)
-    raw_info = extract_youtube_info(requested_url)
+    platform, raw_info, media = _extract_download_source(requested_url)
     if is_cancelled is not None and is_cancelled():
         raise DownloadCancelledError
-    media = normalize_video_info(raw_info, requested_url)
     selection = select_mp4_formats(raw_info.get("formats"), quality)
     _ensure_within_limits(media.duration, selection.estimated_filesize)
 
@@ -613,7 +661,7 @@ def download_youtube_mp4(
 
     return _run_download(
         requested_url=requested_url,
-        title=media.title,
+        title=_download_title(raw_info, platform),
         video_id=media.id,
         options_factory=lambda temporary_path: _mp4_download_options(
             temporary_path, selection
@@ -621,6 +669,7 @@ def download_youtube_mp4(
         extension="mp4",
         log_context={"quality": quality},
         selection=selection,
+        platform=platform,
         on_progress=on_progress,
         is_cancelled=is_cancelled,
     )
@@ -639,10 +688,9 @@ def download_youtube_mp3(
         raise DownloadCancelledError
 
     requested_url = str(url)
-    raw_info = extract_youtube_info(requested_url)
+    platform, raw_info, media = _extract_download_source(requested_url)
     if is_cancelled is not None and is_cancelled():
         raise DownloadCancelledError
-    media = normalize_video_info(raw_info, requested_url)
     selection = select_best_audio_format(raw_info.get("formats"))
 
     estimated_mp3_size = None
@@ -660,7 +708,7 @@ def download_youtube_mp3(
 
     return _run_download(
         requested_url=requested_url,
-        title=media.title,
+        title=_download_title(raw_info, platform),
         video_id=media.id,
         options_factory=lambda temporary_path: _mp3_download_options(
             temporary_path, selection, audio_quality
@@ -668,6 +716,13 @@ def download_youtube_mp3(
         extension="mp3",
         log_context={"audio_quality": audio_quality},
         selection=selection,
+        platform=platform,
         on_progress=on_progress,
         is_cancelled=is_cancelled,
     )
+
+
+# Public generic names. The YouTube-prefixed functions remain as compatibility
+# aliases for existing callers while both platforms share the same pipeline.
+download_media_mp4 = download_youtube_mp4
+download_media_mp3 = download_youtube_mp3
