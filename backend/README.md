@@ -1,7 +1,7 @@
 # ClipFlow API
 
-API FastAPI responsável por validar URLs públicas do YouTube, extrair metadados
-reais e preparar downloads MP4 ou MP3 com `yt-dlp`. A análise usa
+API FastAPI responsável por validar URLs públicas do YouTube e TikTok, extrair
+metadados reais e preparar downloads MP4 ou MP3 com `yt-dlp`. A análise usa
 `download=False`; o download ocorre somente pelo endpoint dedicado e usa
 diretórios temporários.
 
@@ -63,6 +63,6 @@ em `http://localhost:8000/docs`.
 python -m pytest
 ```
 
-Os testes usam mocks e não fazem requisições reais ao YouTube nem downloads de
-mídia. A suíte inclui lifecycle, SSE, throttle, TTL, cancelamento e concorrência
-entre jobs independentes.
+Os testes usam mocks e não fazem requisições reais ao YouTube/TikTok nem downloads
+de mídia. A suíte inclui detecção de plataforma, normalização, lifecycle, SSE,
+throttle, TTL, cancelamento e concorrência entre jobs independentes.

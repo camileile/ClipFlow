@@ -8,10 +8,14 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from app.schemas import MediaFormat, MediaInfo
+from app.services.platforms import (
+    InvalidMediaUrlError,
+    MediaPlatform,
+    UnsupportedPlatformError,
+    detect_platform,
+)
 
 logger = logging.getLogger(__name__)
-
-YOUTUBE_HOSTS = {"youtube.com", "youtu.be", "youtube-nocookie.com"}
 
 YDL_OPTIONS: dict[str, object] = {
     "cachedir": False,
@@ -35,12 +39,7 @@ class YouTubeAnalysisError(Exception):
     """Base exception for predictable YouTube analysis failures."""
 
 
-class InvalidYouTubeUrlError(YouTubeAnalysisError):
-    pass
-
-
-class UnsupportedPlatformError(YouTubeAnalysisError):
-    pass
+InvalidYouTubeUrlError = InvalidMediaUrlError
 
 
 class PrivateVideoError(YouTubeAnalysisError):
@@ -64,21 +63,7 @@ class UnexpectedYouTubeError(YouTubeAnalysisError):
 
 
 def validate_youtube_url(url: str) -> None:
-    parsed = urlparse(url)
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-
-    if parsed.scheme not in {"http", "https"} or not hostname:
-        raise InvalidYouTubeUrlError
-
-    try:
-        port = parsed.port
-    except ValueError as error:
-        raise InvalidYouTubeUrlError from error
-
-    if parsed.username or parsed.password or port not in {None, 80, 443}:
-        raise InvalidYouTubeUrlError
-
-    if not any(hostname == host or hostname.endswith(f".{host}") for host in YOUTUBE_HOSTS):
+    if detect_platform(url) != "youtube":
         raise UnsupportedPlatformError
 
 
@@ -130,6 +115,10 @@ def _extract_video_id(url: str) -> str | None:
     path_parts = [part for part in parsed.path.split("/") if part]
     if len(path_parts) >= 2 and path_parts[0] in {"embed", "shorts", "live"}:
         return _clean_text(path_parts[1])
+    if "video" in path_parts:
+        video_index = path_parts.index("video")
+        if len(path_parts) > video_index + 1:
+            return _clean_text(path_parts[video_index + 1])
 
     return None
 
@@ -222,6 +211,21 @@ def normalize_formats(raw_formats: object) -> list[MediaFormat]:
             current = video_formats.get(normalized.quality)
             if current is None or score > current[0]:
                 video_formats[normalized.quality] = (score, normalized)
+            if has_audio:
+                audio_format = MediaFormat(
+                    format_id=normalized.format_id,
+                    type="audio",
+                    extension=normalized.extension,
+                    bitrate=_non_negative_int(
+                        raw_format.get("abr") or raw_format.get("tbr")
+                    ),
+                    filesize=normalized.filesize,
+                )
+                audio_key = audio_format.extension or "combined"
+                audio_score = _format_score(audio_format, True)
+                current_audio = audio_formats.get(audio_key)
+                if current_audio is None or audio_score > current_audio[0]:
+                    audio_formats[audio_key] = (audio_score, audio_format)
             continue
 
         extension_key = normalized.extension or "unknown"
@@ -245,7 +249,12 @@ def normalize_formats(raw_formats: object) -> list[MediaFormat]:
     return videos + audios
 
 
-def normalize_video_info(info: Mapping[str, Any], requested_url: str) -> MediaInfo:
+def normalize_media_info(
+    info: Mapping[str, Any],
+    requested_url: str,
+    *,
+    platform: MediaPlatform,
+) -> MediaInfo:
     if info.get("_type") in {"playlist", "multi_video"}:
         raise InvalidYouTubeUrlError
 
@@ -264,7 +273,11 @@ def normalize_video_info(info: Mapping[str, Any], requested_url: str) -> MediaIn
 
     return MediaInfo(
         id=video_id or "unknown",
-        title=_clean_text(info.get("title")) or "Vídeo do YouTube",
+        title=(
+            _clean_text(info.get("title"))
+            or _clean_text(info.get("description"))
+            or ("Vídeo do YouTube" if platform == "youtube" else "Vídeo do TikTok")
+        ),
         author=(
             _clean_text(info.get("channel"))
             or _clean_text(info.get("uploader"))
@@ -278,10 +291,18 @@ def normalize_video_info(info: Mapping[str, Any], requested_url: str) -> MediaIn
     )
 
 
+def normalize_video_info(info: Mapping[str, Any], requested_url: str) -> MediaInfo:
+    return normalize_media_info(info, requested_url, platform="youtube")
+
+
 def map_download_error(error: DownloadError) -> YouTubeAnalysisError:
     message = str(error).lower()
 
-    if "private video" in message or "granted access" in message:
+    if (
+        "private video" in message
+        or "video is private" in message
+        or "granted access" in message
+    ):
         return PrivateVideoError()
     if "removed" in message or "has been deleted" in message:
         return RemovedVideoError()

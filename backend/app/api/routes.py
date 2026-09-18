@@ -36,6 +36,7 @@ from app.services.jobs import (
     job_manager,
     start_download_job,
 )
+from app.services.media import analyze_media as analyze_media_url
 from app.services.youtube import (
     InvalidYouTubeUrlError,
     PrivateVideoError,
@@ -44,7 +45,6 @@ from app.services.youtube import (
     UnsupportedPlatformError,
     VideoUnavailableError,
     YouTubeServiceError,
-    analyze_youtube,
 )
 
 router = APIRouter()
@@ -97,7 +97,7 @@ async def job_event_stream(
             return
 
 
-def _raise_youtube_http_error(
+def _raise_media_http_error(
     error: Exception,
     operation: Literal["analysis", "download"],
 ) -> NoReturn:
@@ -108,12 +108,12 @@ def _raise_youtube_http_error(
     if isinstance(error, InvalidYouTubeUrlError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Informe uma URL válida de um vídeo do YouTube.",
+            detail="Informe uma URL válida do YouTube ou TikTok.",
         ) from error
     if isinstance(error, UnsupportedPlatformError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Esta plataforma ainda não é suportada. Use um link do YouTube.",
+            detail="Esta plataforma ainda não é suportada. Use YouTube ou TikTok.",
         ) from error
     if isinstance(error, PrivateVideoError):
         raise HTTPException(
@@ -133,7 +133,7 @@ def _raise_youtube_http_error(
     if isinstance(error, YouTubeServiceError):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"O YouTube não pôde concluir {operation_name} agora. Tente novamente mais tarde.",
+            detail=f"A plataforma não pôde concluir {operation_name} agora. Tente novamente mais tarde.",
         ) from error
     if isinstance(error, UnexpectedYouTubeError):
         raise HTTPException(
@@ -148,9 +148,9 @@ def health_check() -> HealthResponse:
 
 
 @router.post("/api/analyze", response_model=AnalyzeResponse, tags=["media"])
-def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
+def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
     try:
-        media = analyze_youtube(payload.url)
+        platform, media = analyze_media_url(payload.url)
     except (
         InvalidYouTubeUrlError,
         PrivateVideoError,
@@ -160,11 +160,11 @@ def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
         VideoUnavailableError,
         YouTubeServiceError,
     ) as error:
-        _raise_youtube_http_error(error, "analysis")
+        _raise_media_http_error(error, "analysis")
 
     return AnalyzeResponse(
         success=True,
-        platform="youtube",
+        platform=platform,
         media=media,
     )
 
@@ -176,7 +176,10 @@ def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
     tags=["media"],
 )
 async def create_download_job(payload: DownloadRequest) -> DownloadJobCreated:
-    state = start_download_job(payload)
+    try:
+        state = start_download_job(payload)
+    except (InvalidYouTubeUrlError, UnsupportedPlatformError) as error:
+        _raise_media_http_error(error, "download")
     return DownloadJobCreated(job_id=state.job_id, status="queued")
 
 
@@ -312,7 +315,7 @@ def download_media(payload: DownloadRequest) -> Response:
         VideoUnavailableError,
         YouTubeServiceError,
     ) as error:
-        _raise_youtube_http_error(error, "download")
+        _raise_media_http_error(error, "download")
 
     return FileResponse(
         path=artifact.path,
