@@ -1,10 +1,22 @@
+import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import Literal, NoReturn
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Response, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.schemas import AnalyzeRequest, AnalyzeResponse, DownloadRequest, HealthResponse
+from app.config import DOWNLOAD_JOB_KEEPALIVE_SECONDS
+from app.schemas import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    DownloadJobCreated,
+    DownloadJobState,
+    DownloadRequest,
+    HealthResponse,
+)
 from app.services.download import (
     DownloadLimitExceededError,
     DownloadProcessingError,
@@ -14,6 +26,15 @@ from app.services.download import (
     UnsupportedBitrateError,
     download_youtube_mp3,
     download_youtube_mp4,
+)
+from app.services.jobs import (
+    JobFileAlreadyClaimedError,
+    JobManager,
+    JobNotFoundError,
+    JobNotReadyError,
+    JobStatus,
+    job_manager,
+    start_download_job,
 )
 from app.services.youtube import (
     InvalidYouTubeUrlError,
@@ -27,6 +48,53 @@ from app.services.youtube import (
 )
 
 router = APIRouter()
+
+
+def _job_event_name(state: DownloadJobState) -> str:
+    if state.status == JobStatus.READY:
+        return "ready"
+    if state.status == JobStatus.FAILED:
+        return "error"
+    if state.status == JobStatus.CANCELLED:
+        return "cancelled"
+    return "progress"
+
+
+def _serialize_job_event(state: DownloadJobState) -> str:
+    payload = json.dumps(
+        state.model_dump(mode="json"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return f"event: {_job_event_name(state)}\ndata: {payload}\n\n"
+
+
+async def job_event_stream(
+    job_id: UUID,
+    *,
+    manager: JobManager = job_manager,
+    keepalive_seconds: float = DOWNLOAD_JOB_KEEPALIVE_SECONDS,
+) -> AsyncIterator[str]:
+    state, version = manager.get_versioned(job_id)
+    yield _serialize_job_event(state)
+    if state.status in {JobStatus.READY, JobStatus.FAILED, JobStatus.CANCELLED}:
+        return
+
+    while True:
+        changed = await asyncio.to_thread(
+            manager.wait_for_change,
+            job_id,
+            version,
+            keepalive_seconds,
+        )
+        if changed is None:
+            yield ": keepalive\n\n"
+            continue
+
+        state, version = changed
+        yield _serialize_job_event(state)
+        if state.status in {JobStatus.READY, JobStatus.FAILED, JobStatus.CANCELLED}:
+            return
 
 
 def _raise_youtube_http_error(
@@ -99,6 +167,85 @@ def analyze_media(payload: AnalyzeRequest) -> AnalyzeResponse:
         platform="youtube",
         media=media,
     )
+
+
+@router.post(
+    "/api/download/jobs",
+    response_model=DownloadJobCreated,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["media"],
+)
+async def create_download_job(payload: DownloadRequest) -> DownloadJobCreated:
+    state = start_download_job(payload)
+    return DownloadJobCreated(job_id=state.job_id, status="queued")
+
+
+@router.get(
+    "/api/download/jobs/{job_id}/events",
+    response_class=StreamingResponse,
+    tags=["media"],
+)
+async def download_job_events(job_id: UUID) -> StreamingResponse:
+    try:
+        job_manager.get(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Download job not found.",
+        ) from error
+
+    return StreamingResponse(
+        job_event_stream(job_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/api/download/jobs/{job_id}/file",
+    response_class=FileResponse,
+    responses={200: {"content": {"video/mp4": {}, "audio/mpeg": {}}}},
+    tags=["media"],
+)
+def download_job_file(job_id: UUID) -> Response:
+    try:
+        job_file = job_manager.claim_file(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Download job not found.",
+        ) from error
+    except (JobNotReadyError, JobFileAlreadyClaimedError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The download file is not ready.",
+        ) from error
+
+    return FileResponse(
+        path=job_file.path,
+        filename=job_file.filename,
+        media_type=job_file.mime_type,
+        background=BackgroundTask(job_manager.complete_file_delivery, job_id),
+    )
+
+
+@router.delete(
+    "/api/download/jobs/{job_id}",
+    response_model=DownloadJobState,
+    tags=["media"],
+)
+def cancel_download_job(job_id: UUID) -> DownloadJobState:
+    try:
+        return job_manager.cancel(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Download job not found.",
+        ) from error
 
 
 @router.post(

@@ -1,11 +1,14 @@
+import gc
 import logging
+import math
 import re
 import tempfile
+import time
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import HttpUrl
 from yt_dlp import YoutubeDL
@@ -69,6 +72,10 @@ class UnsupportedBitrateError(YouTubeDownloadError):
     pass
 
 
+class DownloadCancelledError(YouTubeDownloadError):
+    pass
+
+
 @dataclass(frozen=True)
 class FormatSelection:
     selector: str
@@ -83,7 +90,44 @@ class DownloadArtifact:
     _temporary_directory: tempfile.TemporaryDirectory[str]
 
     def cleanup(self) -> None:
-        self._temporary_directory.cleanup()
+        _cleanup_temporary_directory(self._temporary_directory)
+
+
+@dataclass(frozen=True)
+class DownloadProgress:
+    status: Literal["downloading", "processing"]
+    stage: str
+    progress: float | None = None
+    downloaded_bytes: int | None = None
+    total_bytes: int | None = None
+    speed: float | None = None
+    eta: int | None = None
+
+
+ProgressCallback = Callable[[DownloadProgress], None]
+CancellationCheck = Callable[[], bool]
+
+
+def _cleanup_temporary_directory(
+    temporary_directory: tempfile.TemporaryDirectory[str],
+) -> None:
+    retry_delays = (0.0, 0.1, 0.25, 0.5, 1.0, 2.0)
+    for index, delay in enumerate(retry_delays):
+        if delay:
+            time.sleep(delay)
+        try:
+            temporary_directory.cleanup()
+            return
+        except OSError:
+            gc.collect()
+            if index == len(retry_delays) - 1:
+                logger.warning("Temporary media cleanup is still pending")
+
+
+def _extract_media(options: dict[str, object], requested_url: str) -> None:
+    """Keep yt-dlp references out of the cleanup frame for Windows file handles."""
+    with YoutubeDL(options) as ydl:
+        ydl.extract_info(requested_url, download=True)
 
 
 def sanitize_download_filename(
@@ -150,9 +194,11 @@ def _codec_rank(codec: str | None, preferred: tuple[str, ...]) -> int:
 def _video_score(raw_format: Mapping[str, Any]) -> tuple[object, ...]:
     extension = (_clean_string(raw_format.get("ext")) or "").lower()
     codec = _clean_string(raw_format.get("vcodec"))
+    protocol = (_clean_string(raw_format.get("protocol")) or "").lower()
     return (
         extension == "mp4",
         _codec_rank(codec, MP4_VIDEO_CODECS),
+        protocol in {"http", "https"},
         float(raw_format.get("fps") or 0),
         float(raw_format.get("tbr") or 0),
         _format_filesize(raw_format) or 0,
@@ -162,16 +208,20 @@ def _video_score(raw_format: Mapping[str, Any]) -> tuple[object, ...]:
 def _audio_score(raw_format: Mapping[str, Any]) -> tuple[object, ...]:
     extension = (_clean_string(raw_format.get("ext")) or "").lower()
     codec = _clean_string(raw_format.get("acodec"))
+    protocol = (_clean_string(raw_format.get("protocol")) or "").lower()
     return (
         extension in {"m4a", "mp4"},
         _codec_rank(codec, MP4_AUDIO_CODECS),
+        protocol in {"http", "https"},
         float(raw_format.get("abr") or raw_format.get("tbr") or 0),
         _format_filesize(raw_format) or 0,
     )
 
 
 def _source_audio_score(raw_format: Mapping[str, Any]) -> tuple[object, ...]:
+    protocol = (_clean_string(raw_format.get("protocol")) or "").lower()
     return (
+        protocol in {"http", "https"},
         float(raw_format.get("abr") or raw_format.get("tbr") or 0),
         float(raw_format.get("asr") or 0),
         int(raw_format.get("audio_channels") or 0),
@@ -315,6 +365,122 @@ def _base_download_options(
     }
 
 
+def _non_negative_number(value: object) -> float | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        return None
+    return float(value)
+
+
+def _non_negative_int(value: object) -> int | None:
+    number = _non_negative_number(value)
+    return int(number) if number is not None else None
+
+
+def _progress_hooks(
+    selection: FormatSelection,
+    extension: str,
+    on_progress: ProgressCallback | None,
+    is_cancelled: CancellationCheck | None,
+) -> tuple[list[Callable[[dict[str, Any]], None]], list[Callable[[dict[str, Any]], None]]]:
+    if on_progress is None and is_cancelled is None:
+        return [], []
+
+    selected_ids = selection.selector.split("+")
+    completed_format_ids: set[str] = set()
+    processing_stage = (
+        "Converting to MP3"
+        if extension == "mp3"
+        else "Merging video and audio"
+    )
+
+    def ensure_not_cancelled(data: Mapping[str, Any] | None = None) -> bool:
+        if is_cancelled is not None and is_cancelled():
+            info = data.get("info_dict") if data is not None else None
+            protocol = (
+                (_clean_string(info.get("protocol")) or "").lower()
+                if isinstance(info, Mapping)
+                else ""
+            )
+            status = data.get("status") if data is not None else None
+            if status == "downloading" and (
+                "m3u8" in protocol or "dash_segments" in protocol
+            ):
+                return False
+            raise DownloadCancelledError("ClipFlow download cancelled")
+        return True
+
+    def progress_hook(data: dict[str, Any]) -> None:
+        if not ensure_not_cancelled(data):
+            return
+        status = data.get("status")
+
+        if status == "downloading":
+            downloaded_bytes = _non_negative_int(data.get("downloaded_bytes"))
+            total_bytes = _non_negative_int(data.get("total_bytes")) or _non_negative_int(
+                data.get("total_bytes_estimate")
+            )
+            progress = None
+            if downloaded_bytes is not None and total_bytes:
+                progress = min(100.0, max(0.0, downloaded_bytes / total_bytes * 100))
+
+            current_format = data.get("info_dict")
+            format_id = (
+                _clean_string(current_format.get("format_id"))
+                if isinstance(current_format, Mapping)
+                else None
+            )
+            stage = "Downloading audio" if extension == "mp3" else "Downloading video"
+            if extension == "mp4" and len(selected_ids) > 1 and format_id == selected_ids[-1]:
+                stage = "Downloading audio"
+
+            if on_progress is not None:
+                on_progress(
+                    DownloadProgress(
+                        status="downloading",
+                        stage=stage,
+                        progress=progress,
+                        downloaded_bytes=downloaded_bytes,
+                        total_bytes=total_bytes,
+                        speed=_non_negative_number(data.get("speed")),
+                        eta=_non_negative_int(data.get("eta")),
+                    )
+                )
+        elif status == "finished" and on_progress is not None:
+            if selection.requires_ffmpeg:
+                current_format = data.get("info_dict")
+                format_id = (
+                    _clean_string(current_format.get("format_id"))
+                    if isinstance(current_format, Mapping)
+                    else None
+                )
+                if len(selected_ids) > 1:
+                    if format_id is not None:
+                        completed_format_ids.add(format_id)
+                    if not set(selected_ids).issubset(completed_format_ids):
+                        return
+                on_progress(DownloadProgress(status="processing", stage=processing_stage))
+            else:
+                on_progress(
+                    DownloadProgress(
+                        status="downloading",
+                        stage="Finalizing download",
+                        progress=100.0,
+                    )
+                )
+
+    def postprocessor_hook(data: dict[str, Any]) -> None:
+        ensure_not_cancelled(data)
+        if on_progress is not None and data.get("status") in {"started", "processing"}:
+            on_progress(DownloadProgress(status="processing", stage=processing_stage))
+
+    return [progress_hook], [postprocessor_hook]
+
+
 def _mp4_download_options(
     temporary_path: Path,
     selection: FormatSelection,
@@ -357,10 +523,23 @@ def _run_download(
     options_factory: Callable[[Path], dict[str, object]],
     extension: str,
     log_context: dict[str, object],
+    selection: FormatSelection,
+    on_progress: ProgressCallback | None = None,
+    is_cancelled: CancellationCheck | None = None,
 ) -> DownloadArtifact:
     temporary_directory = tempfile.TemporaryDirectory(prefix="clipflow-")
     temporary_path = Path(temporary_directory.name)
     options = options_factory(temporary_path)
+    progress_hooks, postprocessor_hooks = _progress_hooks(
+        selection,
+        extension,
+        on_progress,
+        is_cancelled,
+    )
+    if progress_hooks:
+        options["progress_hooks"] = progress_hooks
+    if postprocessor_hooks:
+        options["postprocessor_hooks"] = postprocessor_hooks
     logger.info(
         "Starting YouTube %s download",
         extension.upper(),
@@ -368,8 +547,12 @@ def _run_download(
     )
 
     try:
-        with YoutubeDL(options) as ydl:
-            ydl.extract_info(requested_url, download=True)
+        if is_cancelled is not None and is_cancelled():
+            raise DownloadCancelledError("ClipFlow download cancelled")
+        _extract_media(options, requested_url)
+
+        if is_cancelled is not None and is_cancelled():
+            raise DownloadCancelledError("ClipFlow download cancelled")
 
         output_path = temporary_path / f"media.{extension}"
         if not output_path.is_file() or output_path.stat().st_size <= 0:
@@ -386,7 +569,9 @@ def _run_download(
             _temporary_directory=temporary_directory,
         )
     except DownloadError as error:
-        temporary_directory.cleanup()
+        _cleanup_temporary_directory(temporary_directory)
+        if "clipflow download cancelled" in str(error).lower():
+            raise DownloadCancelledError from error
         if _is_processing_error(error):
             logger.warning("YouTube media post-processing failed")
             raise DownloadProcessingError from error
@@ -394,14 +579,14 @@ def _run_download(
         logger.warning("YouTube media download failed: %s", mapped_error.__class__.__name__)
         raise mapped_error from error
     except YouTubeDownloadError:
-        temporary_directory.cleanup()
+        _cleanup_temporary_directory(temporary_directory)
         raise
     except (OSError, ValueError) as error:
-        temporary_directory.cleanup()
+        _cleanup_temporary_directory(temporary_directory)
         logger.exception("Media file processing failed")
         raise DownloadProcessingError from error
     except Exception as error:
-        temporary_directory.cleanup()
+        _cleanup_temporary_directory(temporary_directory)
         logger.exception("Unexpected YouTube media download failure")
         raise UnexpectedYouTubeError from error
 
@@ -409,9 +594,16 @@ def _run_download(
 def download_youtube_mp4(
     url: HttpUrl | str,
     quality: int,
+    *,
+    on_progress: ProgressCallback | None = None,
+    is_cancelled: CancellationCheck | None = None,
 ) -> DownloadArtifact:
+    if is_cancelled is not None and is_cancelled():
+        raise DownloadCancelledError
     requested_url = str(url)
     raw_info = extract_youtube_info(requested_url)
+    if is_cancelled is not None and is_cancelled():
+        raise DownloadCancelledError
     media = normalize_video_info(raw_info, requested_url)
     selection = select_mp4_formats(raw_info.get("formats"), quality)
     _ensure_within_limits(media.duration, selection.estimated_filesize)
@@ -428,18 +620,28 @@ def download_youtube_mp4(
         ),
         extension="mp4",
         log_context={"quality": quality},
+        selection=selection,
+        on_progress=on_progress,
+        is_cancelled=is_cancelled,
     )
 
 
 def download_youtube_mp3(
     url: HttpUrl | str,
     audio_quality: int,
+    *,
+    on_progress: ProgressCallback | None = None,
+    is_cancelled: CancellationCheck | None = None,
 ) -> DownloadArtifact:
     if audio_quality not in SUPPORTED_MP3_BITRATES:
         raise UnsupportedBitrateError
+    if is_cancelled is not None and is_cancelled():
+        raise DownloadCancelledError
 
     requested_url = str(url)
     raw_info = extract_youtube_info(requested_url)
+    if is_cancelled is not None and is_cancelled():
+        raise DownloadCancelledError
     media = normalize_video_info(raw_info, requested_url)
     selection = select_best_audio_format(raw_info.get("formats"))
 
@@ -465,4 +667,7 @@ def download_youtube_mp3(
         ),
         extension="mp3",
         log_context={"audio_quality": audio_quality},
+        selection=selection,
+        on_progress=on_progress,
+        is_cancelled=is_cancelled,
     )

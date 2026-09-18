@@ -1,6 +1,9 @@
 from app.schemas.media import (
     AnalyzeRequest,
     AnalyzeResponse,
+    DownloadJobCreated,
+    DownloadJobState,
+    DownloadJobStatus,
     DownloadRequest,
     MediaFormat,
     MediaInfo,
@@ -12,6 +15,9 @@ from app.schemas.system import HealthResponse
 __all__ = [
     "AnalyzeRequest",
     "AnalyzeResponse",
+    "DownloadJobCreated",
+    "DownloadJobState",
+    "DownloadJobStatus",
     "DownloadRequest",
     "HealthResponse",
     "MediaFormat",

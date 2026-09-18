@@ -56,6 +56,32 @@ MP4 e MP3 reutilizam validação de URL, limites, detecção de FFmpeg, diretór
 temporários, sanitização do nome, entrega binária e limpeza posterior. MP3
 sempre exige `ffmpeg` e `ffprobe` disponíveis no `PATH`.
 
+## Parte 5 — download jobs e progresso real
+
+O fluxo principal usa jobs efêmeros em memória. `POST /api/download/jobs`
+responde imediatamente com um UUID4; o pipeline bloqueante do `yt-dlp` e do
+FFmpeg roda em uma thread, sem bloquear o event loop do FastAPI. O navegador
+acompanha o job por SSE em `GET /api/download/jobs/{job_id}/events`.
+
+Os progress hooks do `yt-dlp` fornecem bytes baixados, total conhecido ou
+estimado, velocidade e ETA. As atualizações são limitadas a quatro por segundo.
+Quando o FFmpeg assume o processamento, a interface troca para um indicador
+indeterminado: não é criado um percentual fictício para merge ou conversão.
+
+Quando o job fica pronto, `GET /api/download/jobs/{job_id}/file` entrega o
+arquivo e só então remove o diretório temporário. `DELETE
+/api/download/jobs/{job_id}` cancela jobs ativos; o hook interrompe o download
+na próxima atualização. Se o FFmpeg já estiver executando, ele pode terminar o
+processo atual, mas o job permanece cancelado e o arquivo nunca é exposto.
+Em streams fragmentados, a interrupção pode aguardar o fragmento atual terminar
+para que o `yt-dlp` libere seus arquivos com segurança; a entrega continua
+bloqueada e os temporários são removidos assim que a operação puder encerrar.
+
+Jobs prontos expiram após 15 minutos sem retirada. Jobs com falha ou cancelados
+expiram após 5 minutos. Um processo periódico leve e os próprios acessos ao
+manager executam a limpeza. Os jobs não são persistidos: reiniciar o backend
+remove todo o estado e recarregar o frontend perde a referência do job atual.
+
 ## Arquitetura
 
 ```text
@@ -68,7 +94,7 @@ clipflow/
 ├── backend/                  # FastAPI, Uvicorn e Pydantic
 │   ├── app/api/              # Rotas HTTP
 │   ├── app/schemas/          # Contratos de entrada e saída
-│   ├── app/services/         # Análise, download e detecção do FFmpeg
+│   ├── app/services/         # Análise, download, jobs e detecção do FFmpeg
 │   ├── app/config.py         # Limites centralizados do download
 │   ├── app/main.py           # Aplicação e configuração de CORS
 │   └── tests/                # Testes de endpoints e normalização
@@ -84,9 +110,10 @@ tipadas em `src/types/media.ts`.
 O backend mantém as rotas responsáveis apenas pelo protocolo HTTP. A validação
 de domínio e a extração de metadados ficam no serviço YouTube; seleção de
 streams de vídeo/áudio, conversão MP3, limites, nome seguro e ciclo dos arquivos
-temporários ficam no serviço de download. O CORS aceita apenas as origens locais
-esperadas nas portas `3000` e `3001` e expõe somente o cabeçalho necessário para
-o nome do arquivo.
+temporários ficam no serviço de download. O `JobManager` protege o estado
+concorrente, publica versões para SSE e controla cancelamento e TTL. O CORS
+aceita apenas as origens locais esperadas nas portas `3000` e `3001` e expõe
+somente o cabeçalho necessário para o nome do arquivo.
 
 ## Tecnologias
 
@@ -319,6 +346,31 @@ A resposta usa `Content-Type: audio/mpeg` e sugere um nome `.mp3` seguro no
 ausentes e combinações como MP3 com resolução de vídeo são rejeitados pelo
 schema antes do processamento.
 
+### Download jobs
+
+O endpoint antigo `POST /api/download` continua disponível temporariamente para
+compatibilidade. A interface usa o fluxo assíncrono:
+
+```text
+POST /api/download/jobs
+GET  /api/download/jobs/{job_id}/events
+GET  /api/download/jobs/{job_id}/file
+DELETE /api/download/jobs/{job_id}
+```
+
+A criação recebe o mesmo contrato discriminado de MP4 ou MP3 e responde com:
+
+```json
+{
+  "job_id": "1fe5bfe6-dfc7-4e73-9d54-04b0bfad12af",
+  "status": "queued"
+}
+```
+
+O stream SSE envia eventos nomeados `progress`, `ready`, `error` e `cancelled`,
+além de comentários `: keepalive` a cada 10 segundos sem mudanças. O arquivo só
+pode ser solicitado no estado `ready`; antes disso a API responde `409`.
+
 ## Validações
 
 Frontend:
@@ -338,10 +390,9 @@ python -m pytest
 ```
 
 Os testes não acessam o YouTube. A camada de extração e download é substituída
-por mocks. A suíte cobre os cenários anteriores e também os quatro bitrates
-MP3, seleção exclusiva de áudio, combinações inválidas, falha de conversão,
-ausência do FFmpeg, limites, nomes seguros, headers binários e limpeza dos
-arquivos temporários.
+por mocks. A suíte cobre os cenários anteriores e também jobs concorrentes,
+UUID, throttle, progresso determinado e indeterminado, velocidade, ETA, SSE,
+keepalive, cancelamento, entrega MP4/MP3 e limpeza por resposta ou TTL.
 
 ## Escopo desta fase
 
@@ -357,20 +408,22 @@ Implementado:
 - merge/remux de vídeo e áudio separados usando FFmpeg quando necessário;
 - entrega binária com nome seguro e limpeza posterior do diretório temporário;
 - conversão MP3 em 128, 192, 256 ou 320 kbps usando somente o stream de áudio;
+- jobs em memória com progresso real, velocidade, ETA, SSE e cancelamento;
+- lifecycle do arquivo pronto com retirada posterior e TTL automático;
 - validação restrita a hosts do YouTube e timeout/retries limitados;
 - integração frontend/backend via variável de ambiente;
 - testes determinísticos da API e do serviço YouTube.
 
 Ainda não implementado:
 
-- progresso percentual, cancelamento ou processamento persistente em background;
+- persistência ou recuperação de jobs após reinício/refresh;
 - autenticação, banco de dados, filas ou armazenamento;
 - Instagram, TikTok ou X/Twitter;
 - Docker, pagamentos ou analytics.
 
 ## Próximos passos sugeridos
 
-1. Adicionar progresso real e cancelamento em uma etapa própria.
-2. Avaliar processamento assíncrono antes de cargas maiores.
+1. Avaliar Redis e workers externos antes de múltiplas instâncias ou cargas maiores.
+2. Adicionar recuperação do job no frontend somente quando houver persistência.
 3. Considerar metadados ID3 e capa apenas em uma etapa separada.
 4. Expandir plataformas somente após estabilizar o fluxo do YouTube.

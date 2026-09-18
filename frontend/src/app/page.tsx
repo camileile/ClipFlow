@@ -77,7 +77,7 @@ export default function Home() {
               em um fluxo direto e fácil de entender. Nesta etapa, a API
               consulta metadados públicos reais do YouTube e prepara downloads
               MP4 na resolução escolhida ou converte o melhor áudio disponível
-              para MP3 no bitrate selecionado.
+              para MP3 no bitrate selecionado, com progresso real e cancelamento.
             </p>
           </div>
         </section>
