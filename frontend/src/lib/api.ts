@@ -250,45 +250,47 @@ export async function downloadMedia(
 ): Promise<DownloadResult> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 15 * 60_000);
-  let response: Response;
 
   try {
-    response = await fetch(`${API_BASE_URL}/api/download`, {
+    const response = await fetch(`${API_BASE_URL}/api/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
       signal: controller.signal,
     });
-  } catch {
+
+    if (!response.ok) {
+      throw errorFromResponse(response, await readErrorDetail(response));
+    }
+
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      throw new ApiRequestError(
+        "unexpected",
+        "O backend retornou um arquivo vazio. Tente novamente.",
+      );
+    }
+
+    const fallbackFilename = safeFilename(
+      `${fallbackTitle || "clipflow-video"}.mp4`,
+      "clipflow-video.mp4",
+    );
+    const filename = filenameFromDisposition(
+      response.headers.get("Content-Disposition"),
+      fallbackFilename,
+    );
+    startBrowserDownload(blob, filename);
+
+    return { filename };
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      throw error;
+    }
     throw new ApiRequestError(
       "unavailable",
-      "Não foi possível concluir o download. Verifique se o backend está em execução.",
+      "Não foi possível concluir o download. Verifique a conexão e o backend.",
     );
   } finally {
     window.clearTimeout(timeoutId);
   }
-
-  if (!response.ok) {
-    throw errorFromResponse(response, await readErrorDetail(response));
-  }
-
-  const blob = await response.blob();
-  if (blob.size === 0) {
-    throw new ApiRequestError(
-      "unexpected",
-      "O backend retornou um arquivo vazio. Tente novamente.",
-    );
-  }
-
-  const fallbackFilename = safeFilename(
-    `${fallbackTitle || "clipflow-video"}.mp4`,
-    "clipflow-video.mp4",
-  );
-  const filename = filenameFromDisposition(
-    response.headers.get("Content-Disposition"),
-    fallbackFilename,
-  );
-  startBrowserDownload(blob, filename);
-
-  return { filename };
 }
