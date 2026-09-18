@@ -1,6 +1,6 @@
 # ClipFlow API
 
-API FastAPI responsável por validar URLs públicas do YouTube e TikTok, extrair
+API FastAPI responsável por validar URLs públicas do YouTube, TikTok e Instagram, extrair
 metadados reais e preparar downloads MP4 ou MP3 com `yt-dlp`. A análise usa
 `download=False`; o download ocorre somente pelo endpoint dedicado e usa
 diretórios temporários.
@@ -63,6 +63,16 @@ em `http://localhost:8000/docs`.
 python -m pytest
 ```
 
-Os testes usam mocks e não fazem requisições reais ao YouTube/TikTok nem downloads
+Os testes usam mocks e não fazem requisições reais ao YouTube, TikTok ou Instagram nem downloads
 de mídia. A suíte inclui detecção de plataforma, normalização, lifecycle, SSE,
 throttle, TTL, cancelamento e concorrência entre jobs independentes.
+
+## Plataformas suportadas
+
+- YouTube: vídeos públicos em MP4 e MP3.
+- TikTok: vídeos públicos em MP4 e MP3.
+- Instagram: Reels públicos e posts públicos com um único vídeo em MP4 e MP3.
+
+O Instagram não oferece suporte a Stories, mídia privada, login, carrosséis
+completos ou posts somente com imagem. A disponibilidade depende do extractor;
+o serviço não usa cookies, browser automation nem remove watermark ou branding.
