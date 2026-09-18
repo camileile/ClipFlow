@@ -50,3 +50,32 @@ export type DownloadRequest =
 export interface DownloadResult {
   filename: string;
 }
+
+export type DownloadJobStatus =
+  | "queued"
+  | "downloading"
+  | "processing"
+  | "ready"
+  | "failed"
+  | "cancelled";
+
+export interface DownloadJobCreated {
+  job_id: string;
+  status: "queued";
+}
+
+export interface DownloadJobState {
+  job_id: string;
+  status: DownloadJobStatus;
+  stage: string;
+  progress: number | null;
+  downloaded_bytes: number | null;
+  total_bytes: number | null;
+  speed: number | null;
+  eta: number | null;
+  filename: string | null;
+  mime_type: "video/mp4" | "audio/mpeg" | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}

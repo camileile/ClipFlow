@@ -1,6 +1,8 @@
 import type {
   AnalyzeResponse,
   AvailableMediaFormat,
+  DownloadJobCreated,
+  DownloadJobState,
   DownloadRequest,
   DownloadResult,
   MediaInfo,
@@ -26,6 +28,15 @@ export class ApiRequestError extends Error {
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000"
 ).replace(/\/+$/, "");
+
+const DOWNLOAD_JOB_STATUSES = new Set([
+  "queued",
+  "downloading",
+  "processing",
+  "ready",
+  "failed",
+  "cancelled",
+]);
 
 function isAnalyzeResponse(value: unknown): value is AnalyzeResponse {
   if (typeof value !== "object" || value === null) {
@@ -87,6 +98,39 @@ function isMediaInfo(value: unknown): value is MediaInfo {
     ) &&
     Array.isArray(candidate.formats) &&
     candidate.formats.every(isAvailableMediaFormat)
+  );
+}
+
+function isDownloadJobCreated(value: unknown): value is DownloadJobCreated {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.job_id === "string" && candidate.status === "queued";
+}
+
+function isDownloadJobState(value: unknown): value is DownloadJobState {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.job_id === "string" &&
+    typeof candidate.status === "string" &&
+    DOWNLOAD_JOB_STATUSES.has(candidate.status) &&
+    typeof candidate.stage === "string" &&
+    isNullableNumber(candidate.progress) &&
+    isNullableNumber(candidate.downloaded_bytes) &&
+    isNullableNumber(candidate.total_bytes) &&
+    isNullableNumber(candidate.speed) &&
+    isNullableNumber(candidate.eta) &&
+    isNullableString(candidate.filename) &&
+    (candidate.mime_type === null ||
+      candidate.mime_type === "video/mp4" ||
+      candidate.mime_type === "audio/mpeg") &&
+    isNullableString(candidate.error) &&
+    typeof candidate.created_at === "string" &&
+    isNullableString(candidate.completed_at)
   );
 }
 
@@ -179,6 +223,46 @@ function startBrowserDownload(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
+async function saveDownloadResponse(
+  response: Response,
+  format: "mp4" | "mp3",
+  fallbackTitle: string,
+): Promise<DownloadResult> {
+  const blob = await response.blob();
+  if (blob.size === 0) {
+    throw new ApiRequestError(
+      "unexpected",
+      "O backend retornou um arquivo vazio. Tente novamente.",
+    );
+  }
+
+  const expectedMediaType = format === "mp3" ? "audio/mpeg" : "video/mp4";
+  const responseMediaType = response.headers
+    .get("Content-Type")
+    ?.split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  if (responseMediaType && responseMediaType !== expectedMediaType) {
+    throw new ApiRequestError(
+      "unexpected",
+      "O backend retornou um formato de arquivo inesperado.",
+    );
+  }
+
+  const fallbackStem =
+    fallbackTitle || (format === "mp3" ? "clipflow-audio" : "clipflow-video");
+  const fallbackFilename = safeFilename(
+    `${fallbackStem}.${format}`,
+    `clipflow-${format === "mp3" ? "audio" : "video"}.${format}`,
+  );
+  const filename = filenameFromDisposition(
+    response.headers.get("Content-Disposition"),
+    fallbackFilename,
+  );
+  startBrowserDownload(blob, filename);
+  return { filename };
+}
+
 export async function analyzeMedia(url: string): Promise<AnalyzeResponse> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 30_000);
@@ -263,42 +347,7 @@ export async function downloadMedia(
       throw errorFromResponse(response, await readErrorDetail(response));
     }
 
-    const blob = await response.blob();
-    if (blob.size === 0) {
-      throw new ApiRequestError(
-        "unexpected",
-        "O backend retornou um arquivo vazio. Tente novamente.",
-      );
-    }
-
-    const expectedMediaType =
-      request.format === "mp3" ? "audio/mpeg" : "video/mp4";
-    const responseMediaType = response.headers
-      .get("Content-Type")
-      ?.split(";", 1)[0]
-      .trim()
-      .toLowerCase();
-    if (responseMediaType && responseMediaType !== expectedMediaType) {
-      throw new ApiRequestError(
-        "unexpected",
-        "O backend retornou um formato de arquivo inesperado.",
-      );
-    }
-
-    const extension = request.format;
-    const fallbackStem =
-      fallbackTitle || (extension === "mp3" ? "clipflow-audio" : "clipflow-video");
-    const fallbackFilename = safeFilename(
-      `${fallbackStem}.${extension}`,
-      `clipflow-${extension === "mp3" ? "audio" : "video"}.${extension}`,
-    );
-    const filename = filenameFromDisposition(
-      response.headers.get("Content-Disposition"),
-      fallbackFilename,
-    );
-    startBrowserDownload(blob, filename);
-
-    return { filename };
+    return await saveDownloadResponse(response, request.format, fallbackTitle);
   } catch (error) {
     if (error instanceof ApiRequestError) {
       throw error;
@@ -306,6 +355,130 @@ export async function downloadMedia(
     throw new ApiRequestError(
       "unavailable",
       "Não foi possível concluir o download. Verifique a conexão e o backend.",
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export async function createDownloadJob(
+  request: DownloadRequest,
+): Promise<DownloadJobCreated> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/download/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    throw new ApiRequestError(
+      "unavailable",
+      "Não foi possível criar o download. Verifique a conexão e o backend.",
+    );
+  }
+
+  if (!response.ok) {
+    throw errorFromResponse(response, await readErrorDetail(response));
+  }
+
+  const payload: unknown = await response.json();
+  if (!isDownloadJobCreated(payload)) {
+    throw new ApiRequestError("unexpected", "A API retornou um job inválido.");
+  }
+  return payload;
+}
+
+interface DownloadJobEventHandlers {
+  onUpdate: (state: DownloadJobState) => void;
+  onConnectionError: () => void;
+}
+
+export function subscribeToDownloadJob(
+  jobId: string,
+  handlers: DownloadJobEventHandlers,
+): EventSource {
+  const source = new EventSource(
+    `${API_BASE_URL}/api/download/jobs/${encodeURIComponent(jobId)}/events`,
+  );
+
+  const handleMessage = (event: Event) => {
+    if (!(event instanceof MessageEvent) || typeof event.data !== "string") {
+      handlers.onConnectionError();
+      return;
+    }
+    try {
+      const payload: unknown = JSON.parse(event.data);
+      if (!isDownloadJobState(payload)) {
+        throw new Error("Invalid job event");
+      }
+      handlers.onUpdate(payload);
+    } catch {
+      handlers.onConnectionError();
+    }
+  };
+
+  source.addEventListener("progress", handleMessage);
+  source.addEventListener("ready", handleMessage);
+  source.addEventListener("cancelled", handleMessage);
+  source.addEventListener("error", (event) => {
+    if (event instanceof MessageEvent && typeof event.data === "string" && event.data) {
+      handleMessage(event);
+      return;
+    }
+    handlers.onConnectionError();
+  });
+
+  return source;
+}
+
+export async function cancelDownloadJob(jobId: string): Promise<DownloadJobState> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${API_BASE_URL}/api/download/jobs/${encodeURIComponent(jobId)}`,
+      { method: "DELETE" },
+    );
+  } catch {
+    throw new ApiRequestError(
+      "unavailable",
+      "Não foi possível cancelar o download. Tente novamente.",
+    );
+  }
+
+  if (!response.ok) {
+    throw errorFromResponse(response, await readErrorDetail(response));
+  }
+  const payload: unknown = await response.json();
+  if (!isDownloadJobState(payload)) {
+    throw new ApiRequestError("unexpected", "A API retornou um estado inválido.");
+  }
+  return payload;
+}
+
+export async function downloadJobFile(
+  jobId: string,
+  format: "mp4" | "mp3",
+  fallbackTitle: string,
+): Promise<DownloadResult> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 15 * 60_000);
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/download/jobs/${encodeURIComponent(jobId)}/file`,
+      { signal: controller.signal },
+    );
+    if (!response.ok) {
+      throw errorFromResponse(response, await readErrorDetail(response));
+    }
+    return await saveDownloadResponse(response, format, fallbackTitle);
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      throw error;
+    }
+    throw new ApiRequestError(
+      "unavailable",
+      "O arquivo ficou pronto, mas não pôde ser transferido ao navegador.",
     );
   } finally {
     window.clearTimeout(timeoutId);

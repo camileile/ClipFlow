@@ -1,25 +1,56 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { DownloadProgress } from "@/components/download-progress";
 import { ArrowRightIcon, LinkIcon } from "@/components/icons";
 import { MediaPreview } from "@/components/media-preview";
-import { analyzeMedia, ApiRequestError, downloadMedia } from "@/lib/api";
+import {
+  analyzeMedia,
+  ApiRequestError,
+  cancelDownloadJob,
+  createDownloadJob,
+  downloadJobFile,
+  subscribeToDownloadJob,
+} from "@/lib/api";
 import type {
   AudioQuality,
+  DownloadJobState,
   DownloadRequest,
   MediaFormat,
   MediaInfo,
   MediaQuality,
 } from "@/types/media";
 
-type RequestStatus =
+type PassiveStatus =
   | "idle"
   | "analyzing"
   | "ready"
-  | "downloading"
-  | "success"
+  | "completed"
+  | "cancelled"
   | "error";
+
+type ActiveStatus = "queued" | "downloading" | "processing" | "retrieving";
+
+type RequestState =
+  | { status: PassiveStatus; message: string }
+  | {
+      status: ActiveStatus;
+      message: string;
+      jobId: string;
+      job: DownloadJobState;
+      isCancelling: boolean;
+    };
+
+const INITIAL_STATE: RequestState = { status: "idle", message: "" };
+
+function isActiveState(
+  state: RequestState,
+): state is Extract<RequestState, { status: ActiveStatus }> {
+  return ["queued", "downloading", "processing", "retrieving"].includes(
+    state.status,
+  );
+}
 
 function isValidWebUrl(value: string): boolean {
   try {
@@ -32,58 +63,130 @@ function isValidWebUrl(value: string): boolean {
 
 export function DownloaderPanel() {
   const [url, setUrl] = useState("");
-  const [status, setStatus] = useState<RequestStatus>("idle");
-  const [message, setMessage] = useState("");
+  const [requestState, setRequestState] = useState<RequestState>(INITIAL_STATE);
   const [preview, setPreview] = useState<MediaInfo | null>(null);
   const [format, setFormat] = useState<MediaFormat>("mp4");
   const [quality, setQuality] = useState<MediaQuality>("best");
   const [audioQuality, setAudioQuality] = useState<AudioQuality>(192);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  function closeEventSource() {
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+  }
+
+  useEffect(() => () => closeEventSource(), []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedUrl = url.trim();
 
     if (!normalizedUrl) {
-      setStatus("error");
-      setMessage("Cole um link para começar a análise.");
+      setRequestState({
+        status: "error",
+        message: "Cole um link para começar a análise.",
+      });
       return;
     }
 
     if (!isValidWebUrl(normalizedUrl)) {
-      setStatus("error");
-      setMessage(
-        "Use um endereço completo, como https://www.youtube.com/watch?v=...",
-      );
+      setRequestState({
+        status: "error",
+        message:
+          "Use um endereço completo, como https://www.youtube.com/watch?v=...",
+      });
       return;
     }
 
     setPreview(null);
     setQuality("best");
-    setStatus("analyzing");
-    setMessage("Consultando os metadados públicos do vídeo...");
+    setRequestState({
+      status: "analyzing",
+      message: "Consultando os metadados públicos do vídeo...",
+    });
 
     try {
       const result = await analyzeMedia(normalizedUrl);
       setPreview(result.media);
-      setStatus("ready");
-      setMessage("Vídeo analisado. Escolha o formato e a qualidade do arquivo.");
+      setRequestState({
+        status: "ready",
+        message: "Vídeo analisado. Escolha o formato e a qualidade do arquivo.",
+      });
     } catch (error) {
-      setStatus("error");
-      setMessage(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Ocorreu um erro inesperado. Tente novamente.",
-      );
+      setRequestState({
+        status: "error",
+        message:
+          error instanceof ApiRequestError
+            ? error.message
+            : "Ocorreu um erro inesperado. Tente novamente.",
+      });
     }
   }
 
+  async function retrieveReadyFile(job: DownloadJobState) {
+    closeEventSource();
+    setRequestState({
+      status: "retrieving",
+      message: "Arquivo pronto. Transferindo para o navegador...",
+      jobId: job.job_id,
+      job: { ...job, stage: "Transferindo arquivo pronto" },
+      isCancelling: false,
+    });
+
+    try {
+      const result = await downloadJobFile(job.job_id, format, preview?.title ?? "");
+      setRequestState({
+        status: "completed",
+        message: `Download iniciado: ${result.filename}`,
+      });
+    } catch (error) {
+      setRequestState({
+        status: "error",
+        message:
+          error instanceof ApiRequestError
+            ? error.message
+            : "O arquivo ficou pronto, mas não pôde ser baixado.",
+      });
+    }
+  }
+
+  function handleJobUpdate(job: DownloadJobState) {
+    if (job.status === "ready") {
+      void retrieveReadyFile(job);
+      return;
+    }
+    if (job.status === "failed") {
+      closeEventSource();
+      setRequestState({
+        status: "error",
+        message: job.error ?? "Não foi possível concluir o download.",
+      });
+      return;
+    }
+    if (job.status === "cancelled") {
+      closeEventSource();
+      setRequestState({ status: "cancelled", message: "Download cancelado." });
+      return;
+    }
+
+    setRequestState({
+      status: job.status,
+      message:
+        job.status === "processing"
+          ? "Download concluído. Preparando o arquivo final..."
+          : "Download em andamento...",
+      jobId: job.job_id,
+      job,
+      isCancelling: false,
+    });
+  }
+
   async function handleDownload() {
-    if (!preview || status === "downloading") {
+    if (!preview || isActiveState(requestState)) {
       return;
     }
 
     let request: DownloadRequest;
-
     if (format === "mp4") {
       const selectedQuality =
         quality === "best"
@@ -91,11 +194,12 @@ export function DownloaderPanel() {
           : Number.parseInt(quality.replace(/p$/, ""), 10);
 
       if (!selectedQuality || !preview.qualities.includes(selectedQuality)) {
-        setStatus("error");
-        setMessage("Escolha uma qualidade de vídeo disponível antes de baixar.");
+        setRequestState({
+          status: "error",
+          message: "Escolha uma qualidade de vídeo disponível antes de baixar.",
+        });
         return;
       }
-
       request = {
         url: preview.original_url,
         format: "mp4",
@@ -109,34 +213,87 @@ export function DownloaderPanel() {
       };
     }
 
-    setStatus("downloading");
-    setMessage(
-      format === "mp3"
-        ? "Convertendo o áudio para MP3. Isso pode levar alguns minutos..."
-        : "Preparando o MP4. Esta etapa pode levar alguns minutos...",
-    );
-
     try {
-      const result = await downloadMedia(request, preview.title);
-      setStatus("success");
-      setMessage(`Download iniciado: ${result.filename}`);
+      const created = await createDownloadJob(request);
+      const queuedJob: DownloadJobState = {
+        job_id: created.job_id,
+        status: "queued",
+        stage: "Preparing",
+        progress: null,
+        downloaded_bytes: null,
+        total_bytes: null,
+        speed: null,
+        eta: null,
+        filename: null,
+        mime_type: null,
+        error: null,
+        created_at: new Date().toISOString(),
+        completed_at: null,
+      };
+      setRequestState({
+        status: "queued",
+        message: "Download adicionado à fila...",
+        jobId: created.job_id,
+        job: queuedJob,
+        isCancelling: false,
+      });
+
+      eventSourceRef.current = subscribeToDownloadJob(created.job_id, {
+        onUpdate: handleJobUpdate,
+        onConnectionError: () => {
+          closeEventSource();
+          void cancelDownloadJob(created.job_id).catch(() => undefined);
+          setRequestState((current) =>
+            isActiveState(current) && current.jobId === created.job_id
+              ? {
+                  status: "error",
+                  message:
+                    "A conexão de progresso foi interrompida. Tente novamente.",
+                }
+              : current,
+          );
+        },
+      });
     } catch (error) {
-      setStatus("error");
-      setMessage(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Não foi possível concluir o download. Tente novamente.",
-      );
+      setRequestState({
+        status: "error",
+        message:
+          error instanceof ApiRequestError
+            ? error.message
+            : "Não foi possível iniciar o download. Tente novamente.",
+      });
     }
   }
 
-  const isAnalyzing = status === "analyzing";
-  const isDownloading = status === "downloading";
-  const isBusy = isAnalyzing || isDownloading;
+  async function handleCancel() {
+    if (!isActiveState(requestState) || requestState.status === "retrieving") {
+      return;
+    }
+
+    const jobId = requestState.jobId;
+    setRequestState({ ...requestState, isCancelling: true });
+    try {
+      await cancelDownloadJob(jobId);
+      closeEventSource();
+      setRequestState({ status: "cancelled", message: "Download cancelado." });
+    } catch (error) {
+      setRequestState({
+        status: "error",
+        message:
+          error instanceof ApiRequestError
+            ? error.message
+            : "Não foi possível cancelar o download.",
+      });
+    }
+  }
+
+  const isAnalyzing = requestState.status === "analyzing";
+  const activeState = isActiveState(requestState) ? requestState : null;
+  const isBusy = isAnalyzing || activeState !== null;
   const messageColor =
-    status === "error"
+    requestState.status === "error"
       ? "text-danger"
-      : status === "success" || status === "ready"
+      : ["ready", "completed"].includes(requestState.status)
         ? "text-success-strong"
         : "text-muted";
 
@@ -159,7 +316,7 @@ export function DownloaderPanel() {
               inputMode="url"
               autoComplete="url"
               value={url}
-              disabled={isDownloading}
+              disabled={isBusy}
               onChange={(event) => {
                 setUrl(event.target.value);
                 if (preview !== null) {
@@ -167,15 +324,12 @@ export function DownloaderPanel() {
                   setQuality("best");
                   setAudioQuality(192);
                 }
-                if (status !== "idle") {
-                  setStatus("idle");
-                  setMessage("");
-                }
+                setRequestState(INITIAL_STATE);
               }}
               placeholder="Cole um link do YouTube..."
               aria-describedby="url-feedback"
-              aria-invalid={status === "error" && preview === null}
-              className="h-12 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-placeholder"
+              aria-invalid={requestState.status === "error" && preview === null}
+              className="h-12 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-placeholder disabled:cursor-not-allowed disabled:opacity-70"
             />
           </div>
           <button
@@ -188,8 +342,8 @@ export function DownloaderPanel() {
                 <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
                 Analisando
               </>
-            ) : isDownloading ? (
-              "Aguarde"
+            ) : activeState ? (
+              "Download em andamento"
             ) : (
               <>
                 Analisar
@@ -200,10 +354,20 @@ export function DownloaderPanel() {
         </div>
         <div className="min-h-9 px-1 pt-2.5" aria-live="polite">
           <p id="url-feedback" className={`text-sm ${messageColor}`}>
-            {message || "A análise consulta somente metadados públicos do YouTube."}
+            {requestState.message ||
+              "A análise consulta somente metadados públicos do YouTube."}
           </p>
         </div>
       </form>
+
+      {activeState && (
+        <DownloadProgress
+          job={activeState.job}
+          isCancelling={activeState.isCancelling}
+          canCancel={activeState.status !== "retrieving"}
+          onCancel={handleCancel}
+        />
+      )}
 
       <MediaPreview
         data={preview}
@@ -211,7 +375,7 @@ export function DownloaderPanel() {
         quality={quality}
         audioQuality={audioQuality}
         isLoading={isAnalyzing}
-        isDownloading={isDownloading}
+        isDownloading={activeState !== null}
         onDownload={handleDownload}
         onFormatChange={(nextFormat) => {
           setFormat(nextFormat);
@@ -221,12 +385,13 @@ export function DownloaderPanel() {
             setAudioQuality(192);
           }
           if (preview) {
-            setStatus("ready");
-            setMessage(
-              nextFormat === "mp3"
-                ? "Escolha o bitrate para converter e baixar o MP3."
-                : "Escolha a resolução para baixar o MP4.",
-            );
+            setRequestState({
+              status: "ready",
+              message:
+                nextFormat === "mp3"
+                  ? "Escolha o bitrate para converter e baixar o MP3."
+                  : "Escolha a resolução para baixar o MP4.",
+            });
           }
         }}
         onAudioQualityChange={setAudioQuality}
