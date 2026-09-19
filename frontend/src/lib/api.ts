@@ -25,9 +25,13 @@ export class ApiRequestError extends Error {
   }
 }
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000"
-).replace(/\/+$/, "");
+const configuredApiUrl = new URL(
+  process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000",
+);
+if (configuredApiUrl.protocol !== "http:" && configuredApiUrl.protocol !== "https:") {
+  throw new Error("NEXT_PUBLIC_API_URL must use HTTP or HTTPS.");
+}
+const API_BASE_URL = configuredApiUrl.toString().replace(/\/+$/, "");
 
 const DOWNLOAD_JOB_STATUSES = new Set([
   "queued",
@@ -157,10 +161,13 @@ async function readErrorDetail(response: Response): Promise<string | null> {
 }
 
 function errorFromResponse(response: Response, detail: string | null) {
-  if (response.status === 413) {
+  if (response.status === 413 || response.status === 429) {
     return new ApiRequestError(
       "limit",
-      detail ?? "Este vídeo excede o limite atual de download do ClipFlow.",
+      detail ??
+        (response.status === 429
+          ? "Muitas solicitações. Aguarde um momento e tente novamente."
+          : "Este vídeo excede o limite atual de download do ClipFlow."),
     );
   }
 
@@ -298,6 +305,13 @@ export async function analyzeMedia(url: string): Promise<AnalyzeResponse> {
       throw new ApiRequestError(
         "invalid-url",
         detail ?? "Esse link não parece válido. Confira o endereço e tente novamente.",
+      );
+    }
+
+    if (response.status === 429) {
+      throw new ApiRequestError(
+        "limit",
+        detail ?? "Muitas solicitações. Aguarde um momento e tente novamente.",
       );
     }
 
