@@ -581,7 +581,7 @@ export function DownloaderPanel() {
                 <div>
                   <h2 className="text-xl font-bold text-foreground">ClipFlow</h2>
                   <p className="mt-1 font-mono text-[12px] text-muted">
-                    Media Download Utility · Version 0.6
+                    Media Download Utility · Version 0.10
                   </p>
                 </div>
               </div>

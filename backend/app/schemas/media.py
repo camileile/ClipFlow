@@ -4,17 +4,23 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-from app.config import MP3Bitrate
+from app.config import MP3Bitrate, settings
 
 
 class AnalyzeRequest(BaseModel):
-    url: HttpUrl = Field(description="Public YouTube, TikTok, Instagram, or X URL to analyze")
+    url: HttpUrl = Field(
+        max_length=settings.max_url_length,
+        description="Public YouTube, TikTok, Instagram, or X URL to analyze",
+    )
 
 
 class MP4DownloadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url: HttpUrl = Field(description="Public YouTube, TikTok, Instagram, or X URL to download")
+    url: HttpUrl = Field(
+        max_length=settings.max_url_length,
+        description="Public YouTube, TikTok, Instagram, or X URL to download",
+    )
     format: Literal["mp4"]
     quality: int = Field(ge=1, le=4320, description="Exact video height in pixels")
 
@@ -22,7 +28,10 @@ class MP4DownloadRequest(BaseModel):
 class MP3DownloadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url: HttpUrl = Field(description="Public YouTube, TikTok, Instagram, or X URL to download")
+    url: HttpUrl = Field(
+        max_length=settings.max_url_length,
+        description="Public YouTube, TikTok, Instagram, or X URL to download",
+    )
     format: Literal["mp3"]
     audio_quality: MP3Bitrate = Field(description="Target MP3 bitrate in kbps")
 

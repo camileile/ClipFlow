@@ -4,11 +4,14 @@ from collections.abc import AsyncIterator
 from typing import Literal, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.config import DOWNLOAD_JOB_KEEPALIVE_SECONDS
+from app.config import (
+    DOWNLOAD_JOB_KEEPALIVE_SECONDS,
+    JOB_CAPACITY_RETRY_AFTER_SECONDS,
+)
 from app.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -16,6 +19,7 @@ from app.schemas import (
     DownloadJobState,
     DownloadRequest,
     HealthResponse,
+    ReadinessResponse,
 )
 from app.services.download import (
     AudioUnavailableError,
@@ -28,12 +32,16 @@ from app.services.download import (
     download_youtube_mp3,
     download_youtube_mp4,
 )
+from app.services.ffmpeg import detect_media_tools
 from app.services.jobs import (
+    ClientJobCapacityError,
+    JobCapacityError,
     JobFileAlreadyClaimedError,
     JobManager,
     JobNotFoundError,
     JobNotReadyError,
     JobStatus,
+    JobsShuttingDownError,
     job_manager,
     start_download_job,
 )
@@ -46,6 +54,7 @@ from app.services.instagram import (
     InstagramServiceError,
 )
 from app.services.media import analyze_media as analyze_media_url
+from app.services.temporary import ensure_temp_root
 from app.services.twitter import (
     TwitterAuthenticationRequiredError,
     TwitterMediaError,
@@ -214,6 +223,36 @@ def health_check() -> HealthResponse:
     return HealthResponse(status="ok", service="clipflow-api")
 
 
+@router.get(
+    "/ready",
+    response_model=ReadinessResponse,
+    responses={503: {"model": ReadinessResponse}},
+    tags=["system"],
+)
+def readiness_check(request: Request, response: Response) -> ReadinessResponse:
+    app_settings = request.app.state.settings
+    tools = detect_media_tools()
+    temp_available = True
+    try:
+        ensure_temp_root(app_settings.temp_dir)
+    except OSError:
+        temp_available = False
+    checks = {
+        "ffmpeg": tools.ffmpeg is not None,
+        "ffprobe": tools.ffprobe is not None,
+        "temp": temp_available,
+    }
+    ready = all(checks.values())
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return ReadinessResponse(
+        status="ready" if ready else "not_ready",
+        service="clipflow-api",
+        version=app_settings.app_version,
+        checks=checks,
+    )
+
+
 @router.post("/api/analyze", response_model=AnalyzeResponse, tags=["media"])
 def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
     try:
@@ -244,9 +283,27 @@ def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
     status_code=status.HTTP_202_ACCEPTED,
     tags=["media"],
 )
-async def create_download_job(payload: DownloadRequest) -> DownloadJobCreated:
+async def create_download_job(
+    payload: DownloadRequest,
+    request: Request,
+) -> DownloadJobCreated:
     try:
-        state = start_download_job(payload)
+        state = start_download_job(
+            payload,
+            client_id=getattr(request.state, "client_id", None),
+        )
+    except ClientJobCapacityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Você já possui o máximo de downloads ativos permitido.",
+            headers={"Retry-After": str(JOB_CAPACITY_RETRY_AFTER_SECONDS)},
+        ) from error
+    except (JobCapacityError, JobsShuttingDownError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="O servidor está ocupado. Tente novamente em instantes.",
+            headers={"Retry-After": str(JOB_CAPACITY_RETRY_AFTER_SECONDS)},
+        ) from error
     except (
         InvalidYouTubeUrlError,
         InstagramMediaError,

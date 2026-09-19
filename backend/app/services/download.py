@@ -29,6 +29,7 @@ from app.services.instagram import (
     prepare_instagram_info,
 )
 from app.services.platforms import MediaPlatform, detect_platform
+from app.services.temporary import create_download_temp_directory
 from app.services.tiktok import extract_tiktok_info
 from app.services.twitter import (
     extract_twitter_info,
@@ -638,7 +639,7 @@ def _run_download(
     on_progress: ProgressCallback | None = None,
     is_cancelled: CancellationCheck | None = None,
 ) -> DownloadArtifact:
-    temporary_directory = tempfile.TemporaryDirectory(prefix="clipflow-")
+    temporary_directory = create_download_temp_directory()
     temporary_path = Path(temporary_directory.name)
     options = options_factory(temporary_path)
     progress_hooks, postprocessor_hooks = _progress_hooks(

@@ -1,4 +1,5 @@
 import { DownloaderPanel } from "@/components/downloader-panel";
+import { SiteFooter } from "@/components/site-footer";
 
 export default function Home() {
   return (
@@ -8,10 +9,7 @@ export default function Home() {
           ClipFlow Download Manager
         </p>
         <DownloaderPanel />
-        <p className="mx-auto mt-3 max-w-3xl text-center text-[12px] leading-5 text-white/80 [text-shadow:1px_1px_0_rgb(0_65_76/0.85)] sm:text-[13px]">
-          Use o ClipFlow somente para conteúdo que você tenha permissão ou
-          direito de baixar.
-        </p>
+        <SiteFooter />
       </div>
     </main>
   );

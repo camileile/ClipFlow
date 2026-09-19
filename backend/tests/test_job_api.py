@@ -55,7 +55,7 @@ async def test_create_download_job_returns_queued_uuid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = job_manager.create()
-    monkeypatch.setattr(routes, "start_download_job", lambda _: state)
+    monkeypatch.setattr(routes, "start_download_job", lambda _, **__: state)
 
     response = await client.post(
         "/api/download/jobs",

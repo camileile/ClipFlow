@@ -585,3 +585,27 @@ html.dark .theme-icon-moon { display: none; }
     opacity: 0.58;
   }
 }
+
+.retro-footer a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.retro-footer a:hover { color: #fff; }
+
+.retro-footer a:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.legal-copy {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.legal-copy > * + * { margin-top: 1rem; }
+.legal-copy h1 { font-size: 1.25rem; font-weight: 700; }
+.legal-copy h2 { font-size: 1rem; font-weight: 700; color: var(--accent-strong); }
+.legal-copy p { max-width: 72ch; }
