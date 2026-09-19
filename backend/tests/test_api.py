@@ -9,10 +9,17 @@ from app.api import routes
 from app.main import app
 from app.schemas import MediaFormat, MediaInfo
 from app.services.download import (
+    AudioUnavailableError,
     DownloadArtifact,
     DownloadLimitExceededError,
     FFmpegUnavailableError,
     QualityUnavailableError,
+)
+from app.services.twitter import (
+    TwitterAuthenticationRequiredError,
+    TwitterMultipleMediaError,
+    TwitterNoVideoError,
+    TwitterRateLimitedError,
 )
 from app.services.instagram import (
     InstagramAuthenticationRequiredError,
@@ -212,6 +219,77 @@ async def test_analyze_instagram_maps_safe_errors(
     assert response.json() == {"detail": detail}
 
 
+async def test_analyze_twitter_url_returns_shared_contract(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = MediaInfo(
+        id="1234567890",
+        title="Public X video",
+        author="@clipflow",
+        duration=16,
+        thumbnail=None,
+        original_url="https://x.com/clipflow/status/1234567890",
+        qualities=[720, 360],
+        formats=[],
+    )
+    monkeypatch.setattr(routes, "analyze_media_url", lambda _: ("twitter", media))
+
+    response = await client.post(
+        "/api/analyze",
+        json={"url": "https://x.com/clipflow/status/1234567890"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["platform"] == "twitter"
+    assert response.json()["media"]["qualities"] == [720, 360]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "detail"),
+    [
+        (
+            TwitterNoVideoError(),
+            422,
+            "Este post do X/Twitter não contém um vídeo compatível.",
+        ),
+        (
+            TwitterMultipleMediaError(),
+            422,
+            "Posts do X/Twitter com múltiplos vídeos ainda não são suportados.",
+        ),
+        (
+            TwitterAuthenticationRequiredError(),
+            403,
+            "Este post do X/Twitter é protegido ou exige login.",
+        ),
+        (
+            TwitterRateLimitedError(),
+            429,
+            "O X/Twitter rejeitou temporariamente a solicitação. Tente novamente mais tarde.",
+        ),
+    ],
+)
+async def test_analyze_twitter_maps_safe_errors(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    detail: str,
+) -> None:
+    def fail(_: object) -> MediaInfo:
+        raise error
+
+    monkeypatch.setattr(routes, "analyze_media_url", fail)
+    response = await client.post(
+        "/api/analyze",
+        json={"url": "https://twitter.com/clipflow/status/1234567890"},
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": detail}
+
+
 async def test_analyze_rejects_malformed_url(client: AsyncClient) -> None:
     response = await client.post("/api/analyze", json={"url": "not-a-url"})
 
@@ -226,7 +304,7 @@ async def test_analyze_rejects_unsupported_domain(client: AsyncClient) -> None:
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram."
+        "detail": "Esta plataforma ainda não é suportada. Use YouTube, TikTok, Instagram ou X/Twitter."
     }
 
 
@@ -402,8 +480,29 @@ async def test_download_rejects_unsupported_domain(
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram."
+        "detail": "Esta plataforma ainda não é suportada. Use YouTube, TikTok, Instagram ou X/Twitter."
     }
+
+
+async def test_download_mp3_rejects_silent_media(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_audio(*_: object) -> DownloadArtifact:
+        raise AudioUnavailableError
+
+    monkeypatch.setattr(routes, "download_youtube_mp3", no_audio)
+    response = await client.post(
+        "/api/download",
+        json={
+            "url": "https://x.com/clipflow/status/1234567890",
+            "format": "mp3",
+            "audio_quality": 192,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Esta mídia não contém uma faixa de áudio."}
 
 
 async def test_download_rejects_mp3(client: AsyncClient) -> None:

@@ -7,6 +7,7 @@ from yt_dlp.utils import DownloadError
 
 from app.services import download
 from app.services.download import (
+    AudioUnavailableError,
     DownloadArtifact,
     DownloadProcessingError,
     DownloadLimitExceededError,
@@ -60,6 +61,33 @@ def instagram_combined_info(duration: int = 12) -> dict[str, Any]:
                 "height": 720,
                 "width": 1280,
                 "filesize_approx": 2_000_000,
+            }
+        ],
+    }
+
+
+def twitter_combined_info(
+    duration: int = 16,
+    *,
+    with_audio: bool = True,
+    protocol: str = "https",
+) -> dict[str, Any]:
+    return {
+        "id": "1234567890",
+        "title": "X post test",
+        "uploader": "@clipflow",
+        "duration": duration,
+        "webpage_url": "https://x.com/clipflow/status/1234567890",
+        "formats": [
+            {
+                "format_id": "hls-1280" if protocol.startswith("m3u8") else "http-1280",
+                "ext": "mp4",
+                "height": 720,
+                "width": 1280,
+                "vcodec": "h264",
+                "acodec": "aac" if with_audio else "none",
+                "protocol": protocol,
+                "filesize_approx": 2_100_000,
             }
         ],
     }
@@ -851,4 +879,185 @@ def test_download_instagram_applies_shared_duration_limit(
     with pytest.raises(DownloadLimitExceededError):
         download.download_media_mp4(
             "https://www.instagram.com/reel/C1234567890/", 720
+        )
+
+
+@pytest.mark.parametrize("protocol", ["https", "m3u8_native"])
+def test_select_twitter_combined_and_hls_mp4(protocol: str) -> None:
+    info = twitter_combined_info(protocol=protocol)
+    selection = select_mp4_formats(info["formats"], 720, "twitter")
+
+    assert selection.selector == (
+        "hls-1280" if protocol == "m3u8_native" else "http-1280"
+    )
+    assert selection.requires_ffmpeg is False
+
+
+def test_select_twitter_multiple_resolutions_and_best_available() -> None:
+    formats = [
+        {
+            "format_id": f"http-{height}",
+            "ext": "mp4",
+            "height": height,
+            "vcodec": "h264",
+            "acodec": "aac",
+            "protocol": "https",
+        }
+        for height in (360, 720, 1080)
+    ]
+
+    assert select_mp4_formats(formats, 720, "twitter").selector == "http-720"
+    assert select_mp4_formats(formats, None, "twitter").selector == "http-1080"
+
+
+def test_select_twitter_merges_separate_provider_formats() -> None:
+    selection = select_mp4_formats(
+        [
+            {
+                "format_id": "hls-video",
+                "ext": "mp4",
+                "height": 720,
+                "vcodec": "provider-video",
+                "acodec": "none",
+                "protocol": "m3u8_native",
+            },
+            {
+                "format_id": "hls-audio",
+                "ext": "m4a",
+                "vcodec": "none",
+                "acodec": "provider-audio",
+                "protocol": "m3u8_native",
+            },
+        ],
+        720,
+        "twitter",
+    )
+
+    assert selection.selector == "hls-video+hls-audio"
+    assert selection.requires_ffmpeg is True
+
+
+def test_select_twitter_animated_media_accepts_silent_mp4() -> None:
+    selection = select_mp4_formats(
+        twitter_combined_info(with_audio=False)["formats"],
+        720,
+        "twitter",
+    )
+
+    assert selection.selector == "http-1280"
+    assert selection.requires_ffmpeg is False
+
+
+@pytest.mark.parametrize(
+    ("platform", "url", "extractor", "info"),
+    [
+        (
+            "instagram",
+            "https://www.instagram.com/reel/C1234567890/",
+            "extract_instagram_info",
+            {
+                **instagram_combined_info(),
+                "formats": [
+                    {
+                        "format_id": "silent-720",
+                        "ext": "mp4",
+                        "height": 720,
+                        "vcodec": "h264",
+                        "acodec": "none",
+                    }
+                ],
+            },
+        ),
+        (
+            "twitter",
+            "https://x.com/clipflow/status/1234567890",
+            "extract_twitter_info",
+            twitter_combined_info(with_audio=False),
+        ),
+    ],
+)
+def test_silent_media_rejects_mp3_consistently(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    url: str,
+    extractor: str,
+    info: dict[str, Any],
+) -> None:
+    monkeypatch.setattr(download, extractor, lambda _: info)
+
+    with pytest.raises(AudioUnavailableError):
+        download.download_media_mp3(url, 192)
+
+
+@pytest.mark.parametrize("extension", ["mp4", "mp3"])
+def test_download_twitter_reuses_shared_pipeline_and_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    extension: str,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            calls["options"] = options
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extract_info(self, _: str, download: bool) -> dict[str, Any]:
+            assert download is True
+            options = calls["options"]
+            assert isinstance(options, dict)
+            output_template = options["outtmpl"]
+            assert isinstance(output_template, str)
+            Path(output_template.replace("%(ext)s", extension)).write_bytes(b"twitter")
+            return twitter_combined_info()
+
+    monkeypatch.setattr(
+        download, "extract_twitter_info", lambda _: twitter_combined_info()
+    )
+    monkeypatch.setattr(download, "YoutubeDL", FakeYoutubeDL)
+    monkeypatch.setattr(
+        download,
+        "detect_media_tools",
+        lambda: MediaTools(
+            ffmpeg="C:/tools/ffmpeg.exe",
+            ffprobe="C:/tools/ffprobe.exe",
+        ),
+    )
+
+    artifact = (
+        download.download_media_mp4(
+            "https://x.com/clipflow/status/1234567890", 720
+        )
+        if extension == "mp4"
+        else download.download_media_mp3(
+            "https://twitter.com/clipflow/status/1234567890", 192
+        )
+    )
+    temporary_root = artifact.path.parent
+
+    assert artifact.path.read_bytes() == b"twitter"
+    assert artifact.filename == f"X post test.{extension}"
+    assert calls["options"]["format"] == "http-1280"
+    if extension == "mp3":
+        assert calls["options"]["postprocessors"][0]["preferredquality"] == "192"
+    artifact.cleanup()
+    assert not temporary_root.exists()
+
+
+def test_download_twitter_applies_shared_duration_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        download,
+        "extract_twitter_info",
+        lambda _: twitter_combined_info(duration=30 * 60 + 1),
+    )
+
+    with pytest.raises(DownloadLimitExceededError):
+        download.download_media_mp4(
+            "https://x.com/clipflow/status/1234567890", 720
         )

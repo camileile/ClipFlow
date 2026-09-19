@@ -200,6 +200,32 @@ def test_instagram_progress_uses_generic_media_stage() -> None:
     assert updates[0].eta == 2
 
 
+def test_twitter_progress_reports_percentage_speed_and_eta() -> None:
+    updates: list[DownloadProgress] = []
+    hooks, _ = _progress_hooks(
+        FormatSelection("http-720", requires_ffmpeg=False, estimated_filesize=200),
+        "mp4",
+        updates.append,
+        lambda: False,
+        platform="twitter",
+    )
+    hooks[0](
+        {
+            "status": "downloading",
+            "downloaded_bytes": 100,
+            "total_bytes": 200,
+            "speed": 2_000_000,
+            "eta": 4,
+            "info_dict": {"format_id": "http-720"},
+        }
+    )
+
+    assert updates[0].stage == "Downloading media"
+    assert updates[0].progress == 50.0
+    assert updates[0].speed == 2_000_000.0
+    assert updates[0].eta == 4
+
+
 def test_worker_throttles_repeated_progress_updates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -302,6 +328,44 @@ def test_instagram_job_uses_shared_worker_and_keeps_platform_metadata(
     assert result.status == "ready"
     assert result.platform == "instagram"
     manager.complete_file_delivery(state.job_id)
+
+
+def test_twitter_job_uses_shared_worker_and_keeps_platform_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = JobManager()
+    state = manager.create("twitter")
+    artifact = make_artifact()
+    monkeypatch.setattr(jobs, "download_youtube_mp4", lambda *_args, **_kwargs: artifact)
+
+    jobs.process_download_job(
+        manager,
+        state.job_id,
+        MP4DownloadRequest(
+            url="https://x.com/clipflow/status/1234567890",
+            format="mp4",
+            quality=720,
+        ),
+    )
+
+    result = manager.get(state.job_id)
+    assert result.status == "ready"
+    assert result.platform == "twitter"
+    manager.complete_file_delivery(state.job_id)
+
+
+def test_cancelling_twitter_job_does_not_affect_other_platform_job() -> None:
+    manager = JobManager()
+    twitter_job = manager.create("twitter")
+    youtube_job = manager.create("youtube")
+    manager.start(twitter_job.job_id)
+    manager.start(youtube_job.job_id)
+
+    manager.cancel(twitter_job.job_id)
+
+    assert manager.get(twitter_job.job_id).status == "cancelled"
+    assert manager.get(youtube_job.job_id).status == "downloading"
+    manager.clear()
 
 
 @pytest.mark.anyio
