@@ -28,7 +28,10 @@ export class ApiRequestError extends Error {
 const configuredApiUrl = new URL(
   process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000",
 );
-if (configuredApiUrl.protocol !== "http:" && configuredApiUrl.protocol !== "https:") {
+if (
+  configuredApiUrl.protocol !== "http:" &&
+  configuredApiUrl.protocol !== "https:"
+) {
   throw new Error("NEXT_PUBLIC_API_URL must use HTTP or HTTPS.");
 }
 const API_BASE_URL = configuredApiUrl.toString().replace(/\/+$/, "");

@@ -8,7 +8,10 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.config import DOWNLOAD_JOB_KEEPALIVE_SECONDS, JOB_CAPACITY_RETRY_AFTER_SECONDS
+from app.config import (
+    DOWNLOAD_JOB_KEEPALIVE_SECONDS,
+    JOB_CAPACITY_RETRY_AFTER_SECONDS,
+)
 from app.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -29,10 +32,11 @@ from app.services.download import (
     download_youtube_mp3,
     download_youtube_mp4,
 )
+from app.services.ffmpeg import detect_media_tools
 from app.services.jobs import (
-    JobFileAlreadyClaimedError,
     ClientJobCapacityError,
     JobCapacityError,
+    JobFileAlreadyClaimedError,
     JobManager,
     JobNotFoundError,
     JobNotReadyError,
@@ -41,7 +45,6 @@ from app.services.jobs import (
     job_manager,
     start_download_job,
 )
-from app.services.ffmpeg import detect_media_tools
 from app.services.instagram import (
     InstagramAuthenticationRequiredError,
     InstagramCarouselError,
