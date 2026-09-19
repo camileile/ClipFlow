@@ -10,7 +10,7 @@ from app.schemas.media import (
     MP3DownloadRequest,
     MP4DownloadRequest,
 )
-from app.schemas.system import HealthResponse
+from app.schemas.system import HealthResponse, ReadinessResponse
 
 __all__ = [
     "AnalyzeRequest",
@@ -24,4 +24,5 @@ __all__ = [
     "MediaInfo",
     "MP3DownloadRequest",
     "MP4DownloadRequest",
+    "ReadinessResponse",
 ]

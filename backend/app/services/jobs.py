@@ -13,6 +13,7 @@ from app.config import (
     DOWNLOAD_JOB_READY_TTL_SECONDS,
     DOWNLOAD_JOB_TERMINAL_TTL_SECONDS,
     DOWNLOAD_PROGRESS_THROTTLE_SECONDS,
+    settings,
 )
 from app.schemas import DownloadJobState, DownloadRequest
 from app.services.download import (
@@ -89,6 +90,18 @@ class JobFileAlreadyClaimedError(Exception):
     pass
 
 
+class JobCapacityError(Exception):
+    pass
+
+
+class ClientJobCapacityError(Exception):
+    pass
+
+
+class JobsShuttingDownError(Exception):
+    pass
+
+
 @dataclass
 class DownloadJob:
     id: UUID
@@ -109,6 +122,7 @@ class DownloadJob:
     file_claimed: bool = False
     version: int = 0
     cancelled: threading.Event = field(default_factory=threading.Event)
+    client_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,25 +142,51 @@ class JobManager:
         clock: Clock | None = None,
         ready_ttl_seconds: float = DOWNLOAD_JOB_READY_TTL_SECONDS,
         terminal_ttl_seconds: float = DOWNLOAD_JOB_TERMINAL_TTL_SECONDS,
+        max_concurrent_jobs: int = settings.max_concurrent_jobs,
+        max_jobs_per_client: int = settings.max_jobs_per_client,
     ) -> None:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._ready_ttl = timedelta(seconds=ready_ttl_seconds)
         self._terminal_ttl = timedelta(seconds=terminal_ttl_seconds)
         self._jobs: dict[UUID, DownloadJob] = {}
         self._condition = threading.Condition(threading.RLock())
+        self._max_concurrent_jobs = max_concurrent_jobs
+        self._max_jobs_per_client = max_jobs_per_client
+        self._accepting_jobs = True
 
-    def create(self, platform: MediaPlatform = "youtube") -> DownloadJobState:
+    def create(
+        self,
+        platform: MediaPlatform = "youtube",
+        *,
+        client_id: str | None = None,
+    ) -> DownloadJobState:
         self.cleanup_expired()
         with self._condition:
+            if not self._accepting_jobs:
+                raise JobsShuttingDownError
+            active_jobs = [
+                job for job in self._jobs.values() if job.status in ACTIVE_STATUSES
+            ]
+            if len(active_jobs) >= self._max_concurrent_jobs:
+                raise JobCapacityError
+            if client_id is not None and sum(
+                job.client_id == client_id for job in active_jobs
+            ) >= self._max_jobs_per_client:
+                raise ClientJobCapacityError
             job = DownloadJob(
                 id=uuid4(),
                 platform=platform,
                 status=JobStatus.QUEUED,
                 stage="Preparing",
                 created_at=self._clock(),
+                client_id=client_id,
             )
             self._jobs[job.id] = job
             return self._state(job)
+
+    def set_accepting_jobs(self, accepting: bool) -> None:
+        with self._condition:
+            self._accepting_jobs = accepting
 
     def get(self, job_id: UUID) -> DownloadJobState:
         self.cleanup_expired()
@@ -504,8 +544,18 @@ job_manager = JobManager()
 _worker_tasks: set[asyncio.Task[None]] = set()
 
 
-def start_download_job(request: DownloadRequest) -> DownloadJobState:
-    state = job_manager.create(detect_platform(str(request.url)))
+def start_download_job(
+    request: DownloadRequest,
+    *,
+    client_id: str | None = None,
+) -> DownloadJobState:
+    state = job_manager.create(
+        detect_platform(str(request.url)), client_id=client_id
+    )
+    logger.info(
+        "Download job created",
+        extra={"job_id": str(state.job_id), "platform": state.platform},
+    )
     task = asyncio.create_task(
         asyncio.to_thread(process_download_job, job_manager, state.job_id, request)
     )
