@@ -16,6 +16,7 @@ from app.config import (
 )
 from app.schemas import DownloadJobState, DownloadRequest
 from app.services.download import (
+    AudioUnavailableError,
     DownloadArtifact,
     DownloadCancelledError,
     DownloadLimitExceededError,
@@ -36,6 +37,13 @@ from app.services.instagram import (
     InstagramServiceError,
 )
 from app.services.platforms import MediaPlatform, detect_platform
+from app.services.twitter import (
+    TwitterAuthenticationRequiredError,
+    TwitterMultipleMediaError,
+    TwitterNoVideoError,
+    TwitterRateLimitedError,
+    TwitterServiceError,
+)
 from app.services.youtube import (
     InvalidYouTubeUrlError,
     PrivateVideoError,
@@ -384,6 +392,8 @@ def _friendly_error(error: Exception, media_format: str) -> str:
         return "O FFmpeg é necessário para criar este arquivo, mas não está disponível no servidor."
     if isinstance(error, UnsupportedBitrateError):
         return "O bitrate selecionado não é suportado."
+    if isinstance(error, AudioUnavailableError):
+        return "Esta mídia não contém uma faixa de áudio."
     if isinstance(error, IncompatibleMediaError):
         return (
             "Não foi possível encontrar áudio compatível para este vídeo."
@@ -397,9 +407,9 @@ def _friendly_error(error: Exception, media_format: str) -> str:
             else "O arquivo MP4 não pôde ser preparado. Tente outra qualidade."
         )
     if isinstance(error, InvalidYouTubeUrlError):
-        return "Informe uma URL válida do YouTube, TikTok ou Instagram."
+        return "Informe uma URL válida do YouTube, TikTok, Instagram ou X/Twitter."
     if isinstance(error, UnsupportedPlatformError):
-        return "Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram."
+        return "Esta plataforma ainda não é suportada. Use YouTube, TikTok, Instagram ou X/Twitter."
     if isinstance(error, InstagramNoVideoError):
         return "Este post do Instagram não contém um vídeo compatível."
     if isinstance(error, InstagramCarouselError):
@@ -410,6 +420,16 @@ def _friendly_error(error: Exception, media_format: str) -> str:
         return "O Instagram bloqueou temporariamente a solicitação. Tente novamente mais tarde."
     if isinstance(error, InstagramServiceError):
         return "O Instagram não pôde concluir o download agora. Tente novamente mais tarde."
+    if isinstance(error, TwitterNoVideoError):
+        return "Este post do X/Twitter não contém um vídeo compatível."
+    if isinstance(error, TwitterMultipleMediaError):
+        return "Posts do X/Twitter com múltiplos vídeos ainda não são suportados."
+    if isinstance(error, TwitterAuthenticationRequiredError):
+        return "Este post do X/Twitter é protegido ou exige login."
+    if isinstance(error, TwitterRateLimitedError):
+        return "O X/Twitter rejeitou temporariamente a solicitação. Tente novamente mais tarde."
+    if isinstance(error, TwitterServiceError):
+        return "O X/Twitter não pôde concluir o download agora. Tente novamente mais tarde."
     if isinstance(error, PrivateVideoError):
         return "Este vídeo é privado e não pode ser baixado."
     if isinstance(error, RemovedVideoError):

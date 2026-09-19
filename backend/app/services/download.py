@@ -30,6 +30,11 @@ from app.services.instagram import (
 )
 from app.services.platforms import MediaPlatform, detect_platform
 from app.services.tiktok import extract_tiktok_info
+from app.services.twitter import (
+    extract_twitter_info,
+    map_twitter_download_error,
+    prepare_twitter_info,
+)
 from app.services.youtube import (
     UnexpectedYouTubeError,
     YouTubeServiceError,
@@ -78,6 +83,10 @@ class DownloadProcessingError(YouTubeDownloadError):
 
 
 class UnsupportedBitrateError(YouTubeDownloadError):
+    pass
+
+
+class AudioUnavailableError(YouTubeDownloadError):
     pass
 
 
@@ -292,11 +301,11 @@ def select_mp4_formats(
             estimated_filesize=_format_filesize(selected),
         )
 
-    # Instagram commonly exposes either a complete MP4, separate MP4/M4A
+    # Social providers commonly expose either a complete MP4, separate MP4/M4A
     # streams, or a silent MP4. Container information from the provider is
     # sufficient here; requiring YouTube's usual codec labels rejects valid
-    # Instagram media whose codecs are missing or represented differently.
-    if platform == "instagram":
+    # media whose codecs are missing or represented differently.
+    if platform in {"instagram", "twitter"}:
         combined_mp4 = [
             item
             for item in exact_video_formats
@@ -311,13 +320,13 @@ def select_mp4_formats(
                 estimated_filesize=_format_filesize(selected),
             )
 
-        instagram_video_only = [
+        provider_video_only = [
             item
             for item in exact_video_formats
             if not _has_audio(item)
             and (_clean_string(item.get("ext")) or "").lower() == "mp4"
         ]
-        instagram_audio_only = [
+        provider_audio_only = [
             item
             for item in raw_formats
             if isinstance(item, Mapping)
@@ -326,9 +335,9 @@ def select_mp4_formats(
             and _valid_format_id(item) is not None
             and (_clean_string(item.get("ext")) or "").lower() in {"m4a", "mp4"}
         ]
-        if instagram_video_only and instagram_audio_only:
-            selected_video = max(instagram_video_only, key=_video_score)
-            selected_audio = max(instagram_audio_only, key=_audio_score)
+        if provider_video_only and provider_audio_only:
+            selected_video = max(provider_video_only, key=_video_score)
+            selected_audio = max(provider_audio_only, key=_audio_score)
             sizes = [_format_filesize(selected_video), _format_filesize(selected_audio)]
             return FormatSelection(
                 selector=(
@@ -346,8 +355,8 @@ def select_mp4_formats(
         has_any_audio = any(
             isinstance(item, Mapping) and _has_audio(item) for item in raw_formats
         )
-        if instagram_video_only and not has_any_audio:
-            selected = max(instagram_video_only, key=_video_score)
+        if provider_video_only and not has_any_audio:
+            selected = max(provider_video_only, key=_video_score)
             return FormatSelection(
                 selector=_valid_format_id(selected) or "",
                 requires_ffmpeg=False,
@@ -683,6 +692,8 @@ def _run_download(
         mapped_error = (
             map_instagram_download_error(error)
             if platform == "instagram"
+            else map_twitter_download_error(error)
+            if platform == "twitter"
             else map_download_error(error)
         )
         logger.warning(
@@ -715,6 +726,7 @@ def _extract_download_source(
         "youtube": extract_youtube_info,
         "tiktok": extract_tiktok_info,
         "instagram": extract_instagram_info,
+        "twitter": extract_twitter_info,
     }
     raw_info = extractors[platform](requested_url)
     if platform == "youtube":
@@ -722,6 +734,9 @@ def _extract_download_source(
     elif platform == "instagram":
         raw_info = prepare_instagram_info(raw_info, requested_url)
         media = normalize_media_info(raw_info, requested_url, platform="instagram")
+    elif platform == "twitter":
+        raw_info = prepare_twitter_info(raw_info, requested_url)
+        media = normalize_media_info(raw_info, requested_url, platform="twitter")
     else:
         media = normalize_media_info(raw_info, requested_url, platform="tiktok")
     return platform, raw_info, media
@@ -733,8 +748,9 @@ def _download_title(
     extension: Literal["mp3", "mp4"] = "mp4",
     normalized_title: str = "",
 ) -> str:
-    if platform == "instagram":
-        fallback = "instagram-audio" if extension == "mp3" else "instagram-video"
+    if platform in {"instagram", "twitter"}:
+        prefix = "instagram" if platform == "instagram" else "x"
+        fallback = f"{prefix}-audio" if extension == "mp3" else f"{prefix}-video"
         return _clean_string(normalized_title) or fallback
     return (
         _clean_string(raw_info.get("title"))
@@ -794,6 +810,8 @@ def download_youtube_mp3(
     platform, raw_info, media = _extract_download_source(requested_url)
     if is_cancelled is not None and is_cancelled():
         raise DownloadCancelledError
+    if not any(media_format.type == "audio" for media_format in media.formats):
+        raise AudioUnavailableError
     selection = select_best_audio_format(raw_info.get("formats"))
 
     estimated_mp3_size = None

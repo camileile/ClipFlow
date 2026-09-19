@@ -280,6 +280,7 @@ def normalize_media_info(
                 "youtube": "Vídeo do YouTube",
                 "tiktok": "Vídeo do TikTok",
                 "instagram": "Instagram video",
+                "twitter": "X video",
             }[platform]
         ),
         author=(
