@@ -76,6 +76,7 @@ function platformLabel(platform: MediaPlatform): string {
     youtube: "YouTube",
     tiktok: "TikTok",
     instagram: "Instagram",
+    twitter: "X / Twitter",
   }[platform];
 }
 
@@ -113,7 +114,7 @@ export function DownloaderPanel() {
       setRequestState({
         status: "error",
         message:
-          "Use um endereço completo do YouTube, TikTok ou Instagram.",
+          "Use um endereço completo do YouTube, TikTok, Instagram ou X.",
       });
       return;
     }
@@ -130,6 +131,12 @@ export function DownloaderPanel() {
       const result = await analyzeMedia(normalizedUrl);
       setPreview(result.media);
       setPreviewPlatform(result.platform);
+      if (
+        format === "mp3" &&
+        !result.media.formats.some((item) => item.type === "audio")
+      ) {
+        setFormat("mp4");
+      }
       setRequestState({
         status: "ready",
         message: "Vídeo analisado. Escolha o formato e a qualidade do arquivo.",
@@ -418,7 +425,7 @@ export function DownloaderPanel() {
                       }
                       setRequestState(INITIAL_STATE);
                     }}
-                    placeholder="Cole um link do YouTube, TikTok ou Instagram..."
+                    placeholder="Cole um link do YouTube, TikTok, Instagram ou X..."
                     aria-describedby="url-feedback"
                     aria-invalid={requestState.status === "error" && preview === null}
                     className="retro-inset h-10 min-w-0 flex-1 px-3 text-sm outline-none placeholder:text-placeholder disabled:cursor-not-allowed disabled:opacity-65"
@@ -462,7 +469,7 @@ export function DownloaderPanel() {
                     <p id="url-feedback" className={`min-w-0 text-[13px] leading-5 ${messageColor}`}>
                       <strong className="mr-1 text-foreground">{feedbackTitle}:</strong>
                       {requestState.message ||
-                        "Insira um link público do YouTube, TikTok ou Instagram para ler as informações da mídia."}
+                        "Insira um link público do YouTube, TikTok, Instagram ou X para ler as informações da mídia."}
                     </p>
                   </div>
                 </div>
@@ -580,13 +587,13 @@ export function DownloaderPanel() {
               </div>
               <p className="mt-5 text-sm leading-6">
                 Uma ferramenta direta para analisar vídeos públicos do YouTube,
-                TikTok e Instagram e preparar arquivos MP4 ou MP3 com progresso
+                TikTok, Instagram e X/Twitter e preparar arquivos MP4 ou MP3 com progresso
                 real, velocidade, ETA e cancelamento.
               </p>
               <dl className="mt-5 grid gap-2 text-[13px] sm:grid-cols-2">
                 <div className="border border-line bg-surface-elevated p-3">
                   <dt className="font-bold">Plataforma</dt>
-                  <dd className="mt-1 text-muted">YouTube, TikTok e Instagram</dd>
+                  <dd className="mt-1 text-muted">YouTube, TikTok, Instagram e X</dd>
                 </div>
                 <div className="border border-line bg-surface-elevated p-3">
                   <dt className="font-bold">Formatos</dt>

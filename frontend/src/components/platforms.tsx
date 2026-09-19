@@ -7,7 +7,7 @@ const platforms = [
   },
   { name: "Instagram", shortName: "IG", status: "Disponível", featured: true },
   { name: "TikTok", shortName: "TK", status: "Disponível", featured: true },
-  { name: "X", shortName: "X", status: "Em breve", featured: false },
+  { name: "X / Twitter", shortName: "X", status: "Disponível", featured: true },
 ];
 
 export function Platforms() {
