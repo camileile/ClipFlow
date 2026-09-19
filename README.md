@@ -294,11 +294,35 @@ obrigatórios e a API retorna uma mensagem controlada quando não os encontra.
 
 ## Variáveis de ambiente
 
-O frontend lê a seguinte variável:
+Frontend:
 
 | Variável | Valor local sugerido | Descrição |
 | --- | --- | --- |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | URL base pública da API |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | URL pública da API |
+| `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | URL canônica usada em SEO, OG, robots e sitemap |
+| `NEXT_PUBLIC_CONTACT_URL` | GitHub Issues do projeto | Contato público exibido no footer |
+
+Backend:
+
+| Variável | Padrão | Descrição |
+| --- | --- | --- |
+| `APP_ENV` | `development` | `development`, `test` ou `production` |
+| `APP_VERSION` | `0.10.0` | Versão pública retornada pelo readiness |
+| `FRONTEND_ORIGIN` | vazio | Origem principal do frontend em produção |
+| `CORS_ALLOWED_ORIGINS` | localhost em desenvolvimento | Lista CSV de origens exatas |
+| `MAX_DURATION_SECONDS` | `1800` | Duração máxima da mídia |
+| `MAX_FILESIZE_BYTES` | `786432000` | Tamanho máximo estimado |
+| `MAX_CONCURRENT_JOBS` | `3` | Jobs ativos em toda a instância |
+| `MAX_JOBS_PER_CLIENT` | `2` | Jobs ativos por cliente/IP |
+| `RATE_LIMIT` | `20` | Análises por minuto e IP |
+| `DOWNLOAD_JOB_RATE_LIMIT` | `5` | Criações/downloads por minuto e IP |
+| `READY_JOB_TTL` | `900` | Vida de arquivo pronto não retirado, em segundos |
+| `FAILED_JOB_TTL` | `300` | Vida de job falho/cancelado, em segundos |
+| `LOG_LEVEL` | `INFO` | Nível de logs JSON |
+| `TRUSTED_PROXY_IPS` | vazio | IPs exatos autorizados a fornecer `X-Forwarded-For` |
+| `CLIPFLOW_TEMP_DIR` | diretório temporário do sistema | Raiz exclusiva dos temporários ClipFlow |
+| `MAX_URL_LENGTH` | `2048` | Comprimento máximo de URL |
+| `MAX_REQUEST_BODY_BYTES` | `16384` | Limite defensivo para body declarado |
 
 O valor local padrão também é `http://localhost:8000`, mas manter o arquivo
 `.env.local` torna a configuração explícita. Arquivos `.env` reais não são
@@ -340,6 +364,12 @@ Confirma que o serviço está disponível:
   "service": "clipflow-api"
 }
 ```
+
+### `GET /ready`
+
+Verifica FFmpeg, FFprobe e escrita no diretório temporário, sem consultar
+plataformas externas. Responde `200` quando pronto e `503` quando uma dependência
+essencial estiver ausente.
 
 ### `POST /api/analyze`
 
@@ -504,3 +534,69 @@ Ainda não implementado:
 2. Adicionar recuperação do job no frontend somente quando houver persistência.
 3. Considerar metadados ID3 e capa apenas em uma etapa separada.
 4. Avaliar novas plataformas somente em etapas próprias e sem duplicar o pipeline.
+
+## Production Considerations
+
+O frontend pode ser publicado na Vercel ou em qualquer host compatível com
+Next.js. Configure `NEXT_PUBLIC_API_URL` com a API HTTPS e
+`NEXT_PUBLIC_SITE_URL` com o domínio canônico. O pipeline de `yt-dlp`/FFmpeg não
+deve ser movido para uma função serverless de curta duração.
+
+O backend precisa de um host com Python, Node.js, FFmpeg/FFprobe, filesystem
+temporário gravável, SSE e tempo de requisição suficiente. Render, Railway,
+Fly.io ou um VPS podem funcionar desde que o plano aceite esses requisitos. Um
+comando de produção simples é:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --proxy-headers --forwarded-allow-ips="IP_DO_PROXY"
+```
+
+### Requisito crítico: um único worker
+
+Jobs, rate limits e eventos SSE vivem em memória. Execute **uma instância e um
+worker/processo**. Múltiplos workers criariam stores independentes e poderiam
+fazer um cliente criar o job em um processo e consultar outro. Escala horizontal
+exige primeiro um estado compartilhado, que permanece fora do escopo atual.
+
+TLS/HTTPS deve terminar no provedor ou reverse proxy, não dentro do FastAPI.
+Configure `TRUSTED_PROXY_IPS` e `--forwarded-allow-ips` somente com endereços do
+proxy real; o backend ignora `X-Forwarded-For` de outros clientes. Configure no
+proxy um body limit baixo (por exemplo, 32 KiB), timeouts adequados para SSE e
+downloads e buffering desabilitado para a rota de eventos.
+
+## Security
+
+- CORS usa allowlist exata por ambiente e nunca usa wildcard com credenciais.
+- Análise e criação/download de jobs possuem rate limit por IP com
+  `Retry-After`; o mecanismo é local à instância.
+- Há limites globais e por cliente para jobs ativos.
+- Apenas hosts reconhecidos pelo detector de plataformas chegam ao extractor;
+  o endpoint não funciona como proxy HTTP genérico.
+- URLs, bodies, filenames, MIME types e diretórios temporários possuem limites
+  e validação. O cliente nunca escolhe paths ou argumentos de FFmpeg/yt-dlp.
+- O frontend envia CSP, `nosniff`, política de referrer/permissões e proteção de
+  framing. HSTS e upgrade de requests só são habilitados quando o build recebe
+  uma `NEXT_PUBLIC_SITE_URL` HTTPS.
+- O app não usa analytics nem cookies não essenciais por padrão, portanto não
+  exibe um banner de consentimento desnecessário.
+
+## Privacy and legal pages
+
+As páginas públicas `/privacy` e `/terms` descrevem o processamento temporário,
+logs técnicos mínimos, responsabilidade de uso e dependência das plataformas. O
+footer aponta para essas páginas, GitHub e um contato real configurável. O aviso
+de uso responsável permanece junto à ferramenta.
+
+## Launch checklist
+
+- [x] Interface revisada para desktop e breakpoints de 390, 360 e 320 px
+- [x] Favicon autoral, metadata, Open Graph, canonical, robots e sitemap
+- [x] Página 404, privacidade, termos, contato e links externos seguros
+- [x] Headers de segurança e HTTPS/HSTS condicionais documentados
+- [x] CORS, rate limits, concorrência, request IDs e logs estruturados
+- [x] `/health`, `/ready`, TTL e cleanup de temporários
+- [x] Exemplos completos de variáveis e nenhum segredo versionado
+- [x] Arquitetura single-worker e proxy confiável documentados
+- [x] MP4/MP3 e providers cobertos pela suíte automatizada
+- [ ] Repetir smoke tests reais de todas as plataformas no ambiente final
+- [ ] Executar Lighthouse no domínio publicado e revisar métricas de produção

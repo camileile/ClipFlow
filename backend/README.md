@@ -58,6 +58,28 @@ para permitir que o `yt-dlp` feche os arquivos temporários com segurança.
 A API fica disponível em `http://localhost:8000` e sua documentação interativa
 em `http://localhost:8000/docs`.
 
+`GET /health` é um liveness check simples. `GET /ready` verifica FFmpeg,
+FFprobe e escrita na raiz temporária sem acessar serviços externos.
+
+## Produção
+
+Copie os nomes de configuração de `.env.example` para o painel do provedor. O
+backend aplica CORS por allowlist, rate limits por IP, limite global e por
+cliente para jobs, request IDs e logs JSON. Endereços encaminhados só são
+aceitos quando o peer pertence a `TRUSTED_PROXY_IPS`.
+
+Execute somente um worker enquanto jobs e rate limits forem mantidos em memória:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --proxy-headers --forwarded-allow-ips="IP_DO_PROXY"
+```
+
+HTTPS deve terminar no provedor/reverse proxy. O proxy deve aplicar body limit
+baixo, permitir conexões SSE longas e desabilitar buffering na rota de eventos.
+Reiniciar o processo cancela jobs e remove temporários controlados; jobs não são
+recuperados. A documentação interativa é desabilitada quando
+`APP_ENV=production`.
+
 ## Testes
 
 ```bash

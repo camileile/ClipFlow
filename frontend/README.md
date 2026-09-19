@@ -14,6 +14,8 @@ No arquivo `.env.local`, configure a URL da API:
 
 ```dotenv
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+NEXT_PUBLIC_CONTACT_URL=https://github.com/camileile/ClipFlow/issues
 ```
 
 ## Scripts
@@ -37,3 +39,13 @@ disponíveis, identifica a fase de FFmpeg e permite cancelar. Ao receber o event
 Jobs não são recuperados depois de recarregar a página nesta etapa. A interface
 informa que o bitrate MP3 é uma configuração de conversão, não um aumento da
 qualidade original.
+
+## Produção
+
+Configure `NEXT_PUBLIC_API_URL` e `NEXT_PUBLIC_SITE_URL` com URLs HTTPS antes do
+build. A URL do site alimenta canonical, Open Graph, robots e sitemap. O app
+inclui CSP, proteção contra framing, `nosniff`, Referrer Policy e Permissions
+Policy; HSTS é incluído somente quando a URL pública configurada usa HTTPS.
+
+Não há analytics ou cookies não essenciais por padrão. Privacidade, termos,
+contato e 404 são rotas estáticas do App Router.
