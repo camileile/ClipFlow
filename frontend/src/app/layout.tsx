@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { siteConfig } from "@/lib/site-config";
 import "./globals.css";
 
 const themeInitializer = `
@@ -11,9 +12,33 @@ const themeInitializer = `
 `;
 
 export const metadata: Metadata = {
-  title: "ClipFlow Media Utility",
-  description:
-    "Utilitário retrô para analisar mídias públicas do YouTube, TikTok, Instagram e X em MP4 ou MP3.",
+  metadataBase: siteConfig.siteUrl,
+  title: {
+    default: siteConfig.title,
+    template: "%s — ClipFlow",
+  },
+  description: siteConfig.description,
+  applicationName: siteConfig.name,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    url: "/",
+    siteName: siteConfig.name,
+    title: siteConfig.title,
+    description: siteConfig.description,
+    images: [{ url: "/opengraph-image", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteConfig.title,
+    description: siteConfig.description,
+    images: ["/opengraph-image"],
+  },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

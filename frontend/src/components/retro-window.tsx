@@ -119,8 +119,8 @@ export function RetroWindow({
         </span>
         <span className="retro-status-cell status-secondary">YouTube · TikTok · Instagram · X</span>
         <span className="retro-status-cell status-version">
-          <span className="status-version-full">ClipFlow v0.6</span>
-          <span className="status-version-short">v0.6</span>
+          <span className="status-version-full">ClipFlow v0.10</span>
+          <span className="status-version-short">v0.10</span>
         </span>
         <span className="retro-resize-grip" aria-hidden="true" />
       </div>
