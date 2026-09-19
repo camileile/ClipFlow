@@ -18,6 +18,7 @@ from app.schemas import (
     HealthResponse,
 )
 from app.services.download import (
+    AudioUnavailableError,
     DownloadLimitExceededError,
     DownloadProcessingError,
     FFmpegUnavailableError,
@@ -45,6 +46,14 @@ from app.services.instagram import (
     InstagramServiceError,
 )
 from app.services.media import analyze_media as analyze_media_url
+from app.services.twitter import (
+    TwitterAuthenticationRequiredError,
+    TwitterMediaError,
+    TwitterMultipleMediaError,
+    TwitterNoVideoError,
+    TwitterRateLimitedError,
+    TwitterServiceError,
+)
 from app.services.youtube import (
     InvalidYouTubeUrlError,
     PrivateVideoError,
@@ -116,12 +125,12 @@ def _raise_media_http_error(
     if isinstance(error, InvalidYouTubeUrlError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Informe uma URL válida do YouTube, TikTok ou Instagram.",
+            detail="Informe uma URL válida do YouTube, TikTok, Instagram ou X/Twitter.",
         ) from error
     if isinstance(error, UnsupportedPlatformError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Esta plataforma ainda não é suportada. Use YouTube, TikTok ou Instagram.",
+            detail="Esta plataforma ainda não é suportada. Use YouTube, TikTok, Instagram ou X/Twitter.",
         ) from error
     if isinstance(error, InstagramNoVideoError):
         raise HTTPException(
@@ -147,6 +156,31 @@ def _raise_media_http_error(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"O Instagram não pôde concluir {operation_name} agora. Tente novamente mais tarde.",
+        ) from error
+    if isinstance(error, TwitterNoVideoError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Este post do X/Twitter não contém um vídeo compatível.",
+        ) from error
+    if isinstance(error, TwitterMultipleMediaError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Posts do X/Twitter com múltiplos vídeos ainda não são suportados.",
+        ) from error
+    if isinstance(error, TwitterAuthenticationRequiredError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este post do X/Twitter é protegido ou exige login.",
+        ) from error
+    if isinstance(error, TwitterRateLimitedError):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="O X/Twitter rejeitou temporariamente a solicitação. Tente novamente mais tarde.",
+        ) from error
+    if isinstance(error, TwitterServiceError):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"O X/Twitter não pôde concluir {operation_name} agora. Tente novamente mais tarde.",
         ) from error
     if isinstance(error, PrivateVideoError):
         raise HTTPException(
@@ -193,6 +227,7 @@ def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
         UnsupportedPlatformError,
         VideoUnavailableError,
         YouTubeServiceError,
+        TwitterMediaError,
     ) as error:
         _raise_media_http_error(error, "analysis")
 
@@ -212,7 +247,12 @@ def analyze_media_endpoint(payload: AnalyzeRequest) -> AnalyzeResponse:
 async def create_download_job(payload: DownloadRequest) -> DownloadJobCreated:
     try:
         state = start_download_job(payload)
-    except (InvalidYouTubeUrlError, UnsupportedPlatformError, InstagramMediaError) as error:
+    except (
+        InvalidYouTubeUrlError,
+        InstagramMediaError,
+        TwitterMediaError,
+        UnsupportedPlatformError,
+    ) as error:
         _raise_media_http_error(error, "download")
     return DownloadJobCreated(job_id=state.job_id, status="queued")
 
@@ -322,6 +362,11 @@ def download_media(payload: DownloadRequest) -> Response:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="O bitrate selecionado não é suportado.",
         ) from error
+    except AudioUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Esta mídia não contém uma faixa de áudio.",
+        ) from error
     except IncompatibleMediaError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -349,6 +394,7 @@ def download_media(payload: DownloadRequest) -> Response:
         UnsupportedPlatformError,
         VideoUnavailableError,
         YouTubeServiceError,
+        TwitterMediaError,
     ) as error:
         _raise_media_http_error(error, "download")
 

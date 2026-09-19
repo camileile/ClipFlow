@@ -45,8 +45,22 @@ def test_detect_platform_recognizes_instagram_video_urls(url: str) -> None:
 @pytest.mark.parametrize(
     "url",
     [
+        "https://x.com/clipflow/status/1234567890",
+        "https://www.twitter.com/clipflow/status/1234567890?ref_src=test",
+        "https://mobile.twitter.com/clipflow/status/1234567890",
+    ],
+)
+def test_detect_platform_recognizes_x_and_twitter_hosts(url: str) -> None:
+    assert detect_platform(url) == "twitter"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
         "https://tiktok.com.example.org/@creator/video/123",
         "https://instagram.com.evil.example/reel/ABC123/",
+        "https://twitter.com.evil.example/user/status/123",
+        "https://x.com.evil.example/user/status/123",
         "https://example.com/video/123",
     ],
 )

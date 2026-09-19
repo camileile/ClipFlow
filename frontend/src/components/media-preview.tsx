@@ -61,7 +61,9 @@ export function MediaPreview({
   const duration = data ? formatDuration(data.duration) : "00:00";
   const isBusy = isLoading || isDownloading;
   const platformLabel =
-    platform === "instagram"
+    platform === "twitter"
+      ? "X / Twitter"
+      : platform === "instagram"
       ? "Instagram"
       : platform === "tiktok"
         ? "TikTok"
@@ -174,14 +176,19 @@ export function MediaPreview({
                     name="format"
                     value={option.value}
                     checked={format === option.value}
-                    disabled={isBusy}
+                    disabled={
+                      isBusy ||
+                      (option.value === "mp3" && data !== null && !hasAudio)
+                    }
                     onChange={() => onFormatChange(option.value)}
                     className="size-4 accent-[var(--accent)]"
                   />
                   <span>
                     <span className="block font-bold">{option.label}</span>
                     <span className="block text-[11px] font-normal text-muted">
-                      {option.description}
+                      {option.value === "mp3" && data && !hasAudio
+                        ? "Sem áudio"
+                        : option.description}
                     </span>
                   </span>
                 </label>
@@ -254,7 +261,11 @@ export function MediaPreview({
 
           <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
             {data && <CheckIcon className="size-3 text-success-strong" />}
-            {data ? "Configuração válida para esta mídia." : "Analise uma mídia para habilitar."}
+            {data && !hasAudio
+              ? "Esta mídia é silenciosa; somente MP4 está disponível."
+              : data
+                ? "Configuração válida para esta mídia."
+                : "Analise uma mídia para habilitar."}
           </p>
         </div>
       </div>
